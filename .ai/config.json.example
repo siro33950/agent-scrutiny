@@ -1,0 +1,5 @@
+{
+  "targetDir": "/path/to/your/git/repo",
+  "tmuxSession": "scrutiny",
+  "agentCommand": "aider"
+}
