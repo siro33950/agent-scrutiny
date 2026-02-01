@@ -354,12 +354,23 @@ export default function Home() {
           f.line_number <= line_number &&
           (f.line_number_end ?? f.line_number) >= (line_number_end ?? line_number)
       );
-      setSelectedLine({
-        file_path,
-        line_number,
-        ...(line_number_end !== undefined ? { line_number_end } : {}),
-      });
-      setCommentDraft(existing?.comment ?? "");
+      if (existing) {
+        setSelectedLine({
+          file_path: existing.file_path,
+          line_number: existing.line_number,
+          ...(existing.line_number_end !== undefined
+            ? { line_number_end: existing.line_number_end }
+            : {}),
+        });
+        setCommentDraft(existing.comment ?? "");
+      } else {
+        setSelectedLine({
+          file_path,
+          line_number,
+          ...(line_number_end !== undefined ? { line_number_end } : {}),
+        });
+        setCommentDraft("");
+      }
     },
     [feedbackItems]
   );
@@ -756,7 +767,7 @@ export default function Home() {
               value={commentDraft}
               onChange={(e) => setCommentDraft(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && e.metaKey) {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                   e.preventDefault();
                   if (!submitting) handleSubmitComment();
                 }

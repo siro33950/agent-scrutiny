@@ -136,7 +136,7 @@ export function MonacoDiffViewer({
     }
     const lineNumbers = new Set<number>();
     for (const id of highlightLineIds) {
-      const m = /^(?:R|undefined)-(\d+)$/.exec(id);
+      const m = /^(?:R|L)-(\d+)$/.exec(id);
       if (m) lineNumbers.add(Number(m[1]));
     }
     const newDecos = Array.from(lineNumbers).map((line) => ({
