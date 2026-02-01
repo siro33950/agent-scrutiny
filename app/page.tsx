@@ -410,9 +410,9 @@ export default function Home() {
             }
             return ids;
           }),
-        ...(selectionPending &&
-        selectionPending.file_path === currentPath
-          ? [`R-${selectionPending.line_number}`, `L-${selectionPending.line_number}`]
+        ...(selectedLine &&
+        selectedLine.file_path === currentPath
+          ? [`R-${selectedLine.line_number}`, `L-${selectedLine.line_number}`]
           : []),
       ]
     : [];
