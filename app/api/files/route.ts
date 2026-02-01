@@ -48,28 +48,27 @@ export async function GET() {
 
   let files = listAllFiles(targetDir);
 
-  if (files.length > 0) {
-    const checkIgnore = spawnSync(
-      "git",
-      ["check-ignore", "--stdin"],
-      {
-        cwd: targetDir,
-        encoding: "utf-8",
-        input: files.join("\n"),
-        maxBuffer: 10 * 1024 * 1024,
-      }
+  // .gitignore にマッチするパスを除外する（git check-ignore --stdin）
+  const checkIgnore = spawnSync(
+    "git",
+    ["check-ignore", "--stdin"],
+    {
+      cwd: targetDir,
+      input: files.join("\n"),
+      encoding: "utf-8",
+      maxBuffer: 10 * 1024 * 1024,
+    }
+  );
+  if (checkIgnore.status === 0 && checkIgnore.stdout) {
+    const ignoredSet = new Set(
+      checkIgnore.stdout
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean)
     );
-    const ignored =
-      checkIgnore.status === 0
-        ? new Set(
-            (checkIgnore.stdout ?? "")
-              .split("\n")
-              .map((s) => s.trim())
-              .filter(Boolean)
-          )
-        : new Set<string>();
-    files = files.filter((f) => !ignored.has(f));
+    files = files.filter((f) => !ignoredSet.has(f));
   }
+  // check-ignore が非ゼロ（例: 非 git リポジトリ）の場合はフィルタせずそのまま返す
 
   const diffResult = spawnSync("git", ["diff", "HEAD", "--name-only"], {
     cwd: targetDir,

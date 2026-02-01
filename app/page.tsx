@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
+import { MonacoDiffViewer } from "@/app/components/MonacoDiffViewer";
 import type { FeedbackItem } from "@/lib/feedback";
 
 type FolderNode = {
@@ -234,10 +234,6 @@ export default function Home() {
   } | null>(null);
   const [loadingFileContent, setLoadingFileContent] = useState(false);
   const [feedbackItems, setFeedbackItems] = useState<FeedbackItem[]>([]);
-  const [selectionPending, setSelectionPending] = useState<{
-    file_path: string;
-    line_number: number;
-  } | null>(null);
   const [selectedLine, setSelectedLine] = useState<{
     file_path: string;
     line_number: number;
@@ -350,77 +346,33 @@ export default function Home() {
     };
   }, [currentPath]);
 
-  const handleLineNumberClick = useCallback(
-    (lineId: string) => {
-      if (!currentPath) return;
-      const match =
-        /^[LR]-(\d+)$/.exec(lineId) || /^undefined-(\d+)$/.exec(lineId);
-      if (!match) return;
-      const clickedLine = Number(match[1]);
-      const file_path = currentPath;
-
-      const existingForLine = (path: string, start: number, end?: number) =>
-        feedbackItems.find(
-          (f) =>
-            f.file_path === path &&
-            f.line_number <= start &&
-            (f.line_number_end ?? f.line_number) >= (end ?? start)
-        );
-
-      if (!selectionPending || selectionPending.file_path !== file_path) {
-        setSelectionPending({ file_path, line_number: clickedLine });
-        setSelectedLine(null);
-        const existing = existingForLine(file_path, clickedLine);
-        setCommentDraft(existing?.comment ?? "");
-        return;
-      }
-
-      const start = selectionPending.line_number;
-      const end = clickedLine;
-      const [s, e] = start <= end ? [start, end] : [end, start];
-      setSelectionPending(null);
-      if (s === e) {
-        setSelectedLine({ file_path, line_number: s });
-        const existing = feedbackItems.find(
-          (f) =>
-            f.file_path === file_path &&
-            f.line_number === s &&
-            (f.line_number_end === undefined || f.line_number_end === s)
-        );
-        setCommentDraft(existing?.comment ?? "");
+  const onSelectLines = useCallback(
+    (file_path: string, line_number: number, line_number_end?: number) => {
+      const existing = feedbackItems.find(
+        (f) =>
+          f.file_path === file_path &&
+          f.line_number <= line_number &&
+          (f.line_number_end ?? f.line_number) >= (line_number_end ?? line_number)
+      );
+      if (existing) {
+        setSelectedLine({
+          file_path: existing.file_path,
+          line_number: existing.line_number,
+          ...(existing.line_number_end !== undefined
+            ? { line_number_end: existing.line_number_end }
+            : {}),
+        });
+        setCommentDraft(existing.comment ?? "");
       } else {
-        setSelectedLine({ file_path, line_number: s, line_number_end: e });
-        const existing = feedbackItems.find(
-          (f) =>
-            f.file_path === file_path &&
-            f.line_number === s &&
-            f.line_number_end === e
-        );
-        setCommentDraft(existing?.comment ?? "");
+        setSelectedLine({
+          file_path,
+          line_number,
+          ...(line_number_end !== undefined ? { line_number_end } : {}),
+        });
+        setCommentDraft("");
       }
     },
-    [currentPath, feedbackItems, selectionPending]
-  );
-
-  const confirmSingleLine = useCallback(() => {
-    if (!selectionPending) return;
-    const existing = feedbackItems.find(
-      (f) =>
-        f.file_path === selectionPending.file_path &&
-        f.line_number <= selectionPending.line_number &&
-        (f.line_number_end ?? f.line_number) >= selectionPending.line_number
-    );
-    setSelectedLine({
-      file_path: selectionPending.file_path,
-      line_number: selectionPending.line_number,
-    });
-    setCommentDraft(existing?.comment ?? "");
-    setSelectionPending(null);
-  }, [selectionPending, feedbackItems]);
-
-  const onLineClick = useCallback(
-    (lineId: string) => handleLineNumberClick(lineId),
-    [handleLineNumberClick]
+    [feedbackItems]
   );
 
   const handleSubmitComment = useCallback(async () => {
@@ -456,7 +408,7 @@ export default function Home() {
     }
   }, [selectedLine, commentDraft, fetchFeedback]);
 
-  const highlightLines: string[] = currentPath
+  const highlightLineIds: string[] = currentPath
     ? [
         ...feedbackItems
           .filter((f) => f.file_path === currentPath && f.line_number !== 0)
@@ -469,9 +421,9 @@ export default function Home() {
             }
             return ids;
           }),
-        ...(selectionPending &&
-        selectionPending.file_path === currentPath
-          ? [`R-${selectionPending.line_number}`, `L-${selectionPending.line_number}`]
+        ...(selectedLine &&
+        selectedLine.file_path === currentPath
+          ? [`R-${selectedLine.line_number}`, `L-${selectedLine.line_number}`]
           : []),
       ]
     : [];
@@ -624,7 +576,6 @@ export default function Home() {
                   onSelectFile={(path) => {
                     const i = files.indexOf(path);
                     if (i >= 0) setSelectedIndex(i);
-                    setSelectionPending(null);
                   }}
                   onToggleFolder={toggleFolder}
                 />
@@ -645,7 +596,6 @@ export default function Home() {
                         onClick={() => {
                           const idxOfFile = files.indexOf(item.file_path);
                           if (idxOfFile >= 0) setSelectedIndex(idxOfFile);
-                          setSelectionPending(null);
                           setSelectedLine({
                             file_path: item.file_path,
                             line_number: item.line_number,
@@ -765,61 +715,19 @@ export default function Home() {
                   </svg>
                 </button>
               </div>
-              {selectionPending && selectionPending.file_path === currentPath && (
-                <div className="shrink-0 flex items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-                  <span>
-                    行 L{selectionPending.line_number} を選択中。もう1行クリックで範囲を確定。
-                  </span>
-                  <button
-                    type="button"
-                    onClick={confirmSingleLine}
-                    className="shrink-0 rounded-md border border-amber-300 bg-white px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-900/50 dark:text-amber-200 dark:hover:bg-amber-900/70"
-                  >
-                    この行だけ
-                  </button>
-                </div>
-              )}
-              <div className="min-h-0 flex-1 overflow-auto">
+              <div className="min-h-0 flex-1 flex flex-col overflow-auto">
                 {loadingFileContent ? (
                   <div className="flex items-center justify-center p-8 text-sm text-zinc-500 dark:text-zinc-400">
                     読み込み中…
                   </div>
                 ) : fileContent ? (
-                  <ReactDiffViewer
-                    oldValue={fileContent.oldContent}
-                    newValue={fileContent.newContent}
-                    splitView={false}
-                    compareMethod={DiffMethod.LINES}
-                    useDarkTheme={isDark}
-                    onLineNumberClick={onLineClick}
-                    highlightLines={highlightLines}
-                    showDiffOnly={false}
-                    styles={{
-                      variables: {
-                        dark: {
-                          diffViewerBackground: "#0d1117",
-                          diffViewerColor: "#c9d1d9",
-                          addedBackground: "#033a16",
-                          addedColor: "#7ee787",
-                          removedBackground: "#4a0e0e",
-                          removedColor: "#ff7b72",
-                        },
-                        light: {
-                          diffViewerBackground: "#f6f8fa",
-                          diffViewerColor: "#24292f",
-                          addedBackground: "#dafbe1",
-                          addedColor: "#1a7f37",
-                          removedBackground: "#ffebe9",
-                          removedColor: "#cf222e",
-                        },
-                      },
-                      line: {
-                        padding: "2px 0",
-                        fontSize: "13px",
-                        fontFamily: "var(--font-geist-mono), ui-monospace, monospace",
-                        lineHeight: 1.5,
-                      },
-                    }}
+                  <MonacoDiffViewer
+                    original={fileContent.oldContent}
+                    modified={fileContent.newContent}
+                    filePath={currentPath}
+                    theme={isDark ? "vs-dark" : "light"}
+                    onSelectLines={onSelectLines}
+                    highlightLineIds={highlightLineIds}
                   />
                 ) : (
                   <div className="flex items-center justify-center p-8 text-sm text-zinc-500 dark:text-zinc-400">
@@ -859,12 +767,12 @@ export default function Home() {
               value={commentDraft}
               onChange={(e) => setCommentDraft(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && e.shiftKey) {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                   e.preventDefault();
                   if (!submitting) handleSubmitComment();
                 }
               }}
-              placeholder="指摘や修正依頼を入力...（Shift+Enter で保存）"
+              placeholder="指摘や修正依頼を入力...（Cmd+Enter で保存）"
               className="mb-4 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
               rows={4}
               autoFocus
