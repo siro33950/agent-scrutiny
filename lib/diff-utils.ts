@@ -11,7 +11,9 @@ export function fileToOldNew(file: ParsedFile): { oldContent: string; newContent
   let newContent = "";
   for (const chunk of file.chunks) {
     for (const change of chunk.changes as Change[]) {
-      const content = "content" in change ? change.content : "";
+      let content = "content" in change ? change.content : "";
+      if (content.length > 0) content = content.slice(1);
+      if (content.length > 0 && !content.endsWith("\n")) content += "\n";
       if (change.type === "del" || change.type === "normal") {
         oldContent += content;
       }

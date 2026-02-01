@@ -40,7 +40,7 @@ export async function POST() {
   const oneLine = instruction.replace(/\s+/g, " ").trim();
 
   const agentTarget = `${agentSession}:0.0`;
-  const sendText = spawnSync("tmux", ["send-keys", "-t", agentTarget, "-l", "", oneLine], {
+  const sendText = spawnSync("tmux", ["send-keys", "-t", agentTarget, "-l", oneLine], {
     encoding: "utf-8",
     maxBuffer: 1024 * 1024,
   });

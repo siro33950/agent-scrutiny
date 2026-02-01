@@ -320,20 +320,34 @@ export default function Home() {
       setFileContent(null);
       return;
     }
+    let aborted = false;
+    const controller = new AbortController();
     setLoadingFileContent(true);
     setFileContent(null);
     fetch(
-      `/api/file-content?path=${encodeURIComponent(currentPath)}`
+      `/api/file-content?path=${encodeURIComponent(currentPath)}`,
+      { signal: controller.signal }
     )
       .then((res) => res.json())
       .then((data: { oldContent?: string; newContent?: string }) => {
-        setFileContent({
-          oldContent: data.oldContent ?? "",
-          newContent: data.newContent ?? "",
-        });
+        if (!aborted) {
+          setFileContent({
+            oldContent: data.oldContent ?? "",
+            newContent: data.newContent ?? "",
+          });
+        }
       })
-      .catch(() => setFileContent({ oldContent: "", newContent: "" }))
-      .finally(() => setLoadingFileContent(false));
+      .catch((err: { name?: string }) => {
+        if (err.name === "AbortError") return;
+        setFileContent({ oldContent: "", newContent: "" });
+      })
+      .finally(() => {
+        if (!aborted) setLoadingFileContent(false);
+      });
+    return () => {
+      aborted = true;
+      controller.abort();
+    };
   }, [currentPath]);
 
   const handleLineNumberClick = useCallback(

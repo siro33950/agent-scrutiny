@@ -34,7 +34,8 @@ export async function POST(request: NextRequest) {
       const o = x as Record<string, unknown>;
       const isWholeFile =
         "whole_file" in o && (o.whole_file === true || o.whole_file === "true");
-      let line_number = isWholeFile ? 0 : Number(o.line_number);
+      const rawLine = Number(o.line_number);
+      let line_number = isWholeFile ? 0 : (Number.isFinite(rawLine) ? rawLine : 0);
       const rawEnd =
         "line_number_end" in o && o.line_number_end != null
           ? Number(o.line_number_end)
@@ -52,7 +53,7 @@ export async function POST(request: NextRequest) {
       }
       const item: FeedbackItem = {
         file_path: String(o.file_path),
-        line_number: isWholeFile ? 0 : line_number,
+        line_number,
         comment: String(o.comment),
       };
       if (line_number_end !== undefined) {

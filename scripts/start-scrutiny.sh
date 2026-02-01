@@ -35,18 +35,6 @@ AGENT_CMD="$(echo "$CONFIG" | node -e "let s=''; process.stdin.on('data',d=>s+=d
 AGENT_CWD="$(echo "$CONFIG" | node -e "let s=''; process.stdin.on('data',d=>s+=d); process.stdin.on('end',()=>{ try { const c=JSON.parse(s); console.log(c.targetDir||''); } catch(e){ console.log(''); } });")"
 [ -z "$AGENT_CWD" ] && AGENT_CWD="$PROJECT_ROOT"
 
-# tmux マウス操作を有効化（クリックでフォーカス、スクロール、リサイズ）
-TMUX_CONF="${HOME}/.tmux.conf"
-if [ -f "$TMUX_CONF" ]; then
-  grep -q "set -g mouse on" "$TMUX_CONF" 2>/dev/null || { echo "" >> "$TMUX_CONF"; echo "# AgentScrutiny: マウス操作" >> "$TMUX_CONF"; echo "set -g mouse on" >> "$TMUX_CONF"; }
-else
-  echo "# AgentScrutiny: マウス操作" > "$TMUX_CONF"
-  echo "set -g mouse on" >> "$TMUX_CONF"
-fi
-if command -v tmux &>/dev/null && tmux list-sessions &>/dev/null; then
-  tmux source-file "$TMUX_CONF" 2>/dev/null || true
-fi
-
 if tmux has-session -t "$DEV_SESSION" 2>/dev/null; then
   tmux kill-session -t "$DEV_SESSION"
 fi

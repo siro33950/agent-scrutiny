@@ -50,12 +50,23 @@ function asFeedbackItem(x: unknown): FeedbackItem | null {
     "whole_file" in o && (o.whole_file === true || o.whole_file === "true");
   if (!isWholeFile && !("line_number" in o)) return null;
   const line_number = isWholeFile ? 0 : Number(o.line_number);
+  if (
+    !isWholeFile &&
+    (!Number.isFinite(line_number) ||
+      !Number.isInteger(line_number) ||
+      line_number <= 0)
+  ) {
+    return null;
+  }
   const line_number_end =
     isWholeFile || !("line_number_end" in o) || o.line_number_end == null
       ? undefined
       : Number(o.line_number_end);
   const line_number_endValid =
-    line_number_end !== undefined && !Number.isNaN(line_number_end);
+    line_number_end !== undefined &&
+    Number.isFinite(line_number_end) &&
+    Number.isInteger(line_number_end) &&
+    line_number_end >= line_number;
   return {
     file_path: String(o.file_path),
     line_number,
