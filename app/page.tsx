@@ -333,8 +333,10 @@ export default function Home() {
     ].filter((path) => !fetchingPathsRef.current.has(path));
     if (toFetch.length === 0) return;
     const aborted = new Set<string>();
-    toFetch.forEach((path) => fetchingPathsRef.current.add(path));
-    toFetch.forEach((path) => {
+    for (const path of toFetch) {
+      fetchingPathsRef.current.add(path);
+    }
+    for (const path of toFetch) {
       fetch(`/api/file-content?path=${encodeURIComponent(path)}`)
         .then((res) => res.json())
         .then((data: { oldContent?: string; newContent?: string }) => {
@@ -362,12 +364,11 @@ export default function Home() {
             [path]: { oldContent: "", newContent: "" },
           }));
         });
-    });
+    }
     return () => {
-      toFetch.forEach((p) => {
+      for (const p of toFetch) {
         aborted.add(p);
-        fetchingPathsRef.current.delete(p);
-      });
+      }
     };
   }, [openTabs, activeTabIndex, fileContentCache]);
 
@@ -620,8 +621,11 @@ export default function Home() {
                               setActiveTabIndex(idx);
                               return;
                             }
-                            setOpenTabs((prev) => [...prev, path]);
-                            setActiveTabIndex(openTabs.length);
+                            setOpenTabs((prev) => {
+                              const newIndex = prev.length;
+                              setActiveTabIndex(newIndex);
+                              return [...prev, path];
+                            });
                           }}
                           onToggleFolder={toggleFolder}
                         />
@@ -675,8 +679,11 @@ export default function Home() {
                                     setActiveTabIndex(idx);
                                     return;
                                   }
-                                  setOpenTabs((prev) => [...prev, path]);
-                                  setActiveTabIndex(openTabs.length);
+                                  setOpenTabs((prev) => {
+                                    const newIndex = prev.length;
+                                    setActiveTabIndex(newIndex);
+                                    return [...prev, path];
+                                  });
                                 }}
                                 className={`flex w-full items-center gap-2 truncate px-3 py-1.5 text-left text-sm font-mono hover:bg-zinc-50 dark:hover:bg-zinc-800 ${nameColor}`}
                                 title={path}
@@ -718,12 +725,24 @@ export default function Home() {
                               type="button"
                               onClick={() => {
                                 const path = item.file_path;
-                                let tabIdx = openTabs.indexOf(path);
-                                if (tabIdx < 0) {
-                                  setOpenTabs((prev) => [...prev, path]);
-                                  tabIdx = openTabs.length;
+                                const tabIdx = openTabs.indexOf(path);
+                                if (tabIdx >= 0) {
+                                  setActiveTabIndex(tabIdx);
+                                  setSelectedLine({
+                                    file_path: path,
+                                    line_number: item.line_number,
+                                    ...(item.line_number_end !== undefined
+                                      ? { line_number_end: item.line_number_end }
+                                      : {}),
+                                  });
+                                  setCommentDraft(item.comment ?? "");
+                                  return;
                                 }
-                                setActiveTabIndex(tabIdx);
+                                setOpenTabs((prev) => {
+                                  const newIndex = prev.length;
+                                  setActiveTabIndex(newIndex);
+                                  return [...prev, path];
+                                });
                                 setSelectedLine({
                                   file_path: path,
                                   line_number: item.line_number,
