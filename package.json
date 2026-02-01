@@ -15,11 +15,10 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
     "js-yaml": "^4.1.1",
     "next": "16.1.6",
-    "parse-diff": "^0.11.1",
     "react": "19.2.3",
-    "react-diff-viewer-continued": "^3.4.0",
     "react-dom": "19.2.3"
   },
   "devDependencies": {

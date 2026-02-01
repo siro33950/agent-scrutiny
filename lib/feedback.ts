@@ -180,12 +180,12 @@ export function writeFeedbackUnsent(
     return next;
   }
   const existing = readFeedbackUnsent(projectRoot);
-  const toAdd =
+  const toAdd: FeedbackItem[] =
     yamlItems !== null
       ? yamlItems
       : Array.isArray(input)
         ? input
-        : [input];
+        : [input as FeedbackItem];
   const key = (item: FeedbackItem) =>
     `${item.file_path}:${item.line_number}:${item.line_number_end ?? item.line_number}`;
   const byKey = new Map<string, FeedbackItem>();

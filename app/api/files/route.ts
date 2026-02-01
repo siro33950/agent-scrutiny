@@ -46,30 +46,7 @@ export async function GET() {
   const config = loadConfig(projectRoot);
   const targetDir = path.resolve(projectRoot, config.targetDir || projectRoot);
 
-  let files = listAllFiles(targetDir);
-
-  if (files.length > 0) {
-    const checkIgnore = spawnSync(
-      "git",
-      ["check-ignore", "--stdin"],
-      {
-        cwd: targetDir,
-        encoding: "utf-8",
-        input: files.join("\n"),
-        maxBuffer: 10 * 1024 * 1024,
-      }
-    );
-    const ignored =
-      checkIgnore.status === 0
-        ? new Set(
-            (checkIgnore.stdout ?? "")
-              .split("\n")
-              .map((s) => s.trim())
-              .filter(Boolean)
-          )
-        : new Set<string>();
-    files = files.filter((f) => !ignored.has(f));
-  }
+  const files = listAllFiles(targetDir);
 
   const diffResult = spawnSync("git", ["diff", "HEAD", "--name-only"], {
     cwd: targetDir,
