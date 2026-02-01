@@ -62,6 +62,27 @@ function collectFolderPaths(nodes: TreeNode[]): string[] {
   return out;
 }
 
+function getFolderState(
+  node: FolderNode,
+  modifiedSet: Set<string>,
+  untrackedSet: Set<string>
+): "modified" | "untracked" | "clean" {
+  let hasModified = false;
+  let hasUntracked = false;
+  const visit = (n: TreeNode) => {
+    if (n.type === "folder") {
+      n.children.forEach(visit);
+    } else {
+      if (modifiedSet.has(n.path)) hasModified = true;
+      else if (untrackedSet.has(n.path)) hasUntracked = true;
+    }
+  };
+  visit(node);
+  if (hasModified) return "modified";
+  if (hasUntracked) return "untracked";
+  return "clean";
+}
+
 function getFileTypeIcon(filePath: string): string {
   const name = filePath.split("/").pop() ?? "";
   const ext = name.includes(".") ? name.split(".").pop()?.toLowerCase() : "";
@@ -100,12 +121,19 @@ function FileTreeNodes({
   const pad = depth * 12;
   if (node.type === "folder") {
     const isExpanded = expandedFolders.has(node.path);
+    const folderState = getFolderState(node, modifiedSet, untrackedSet);
+    const folderNameColor =
+      folderState === "modified"
+        ? "text-amber-700 dark:text-amber-400"
+        : folderState === "untracked"
+          ? "text-green-600 dark:text-green-400"
+          : "text-zinc-600 dark:text-zinc-400";
     return (
       <div className="shrink-0">
         <button
           type="button"
           onClick={() => onToggleFolder(node.path)}
-          className="flex w-full items-center gap-1 truncate py-1.5 pr-2 text-left text-sm font-mono text-zinc-600 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:bg-zinc-800"
+          className={`flex w-full items-center gap-1 truncate py-1.5 pr-2 text-left text-sm font-mono hover:bg-zinc-50 dark:hover:bg-zinc-800 ${folderNameColor}`}
           style={{ paddingLeft: `${8 + pad}px` }}
           title={node.path || "ルート"}
         >
@@ -245,7 +273,7 @@ export default function Home() {
       setFileContent(null);
       setSelectedIndex((prev) => (prev >= list.length ? 0 : prev));
       const tree = buildTree(list);
-      setExpandedFolders(new Set(collectFolderPaths(tree)));
+      setExpandedFolders(new Set());
     } catch (e) {
       setError(e instanceof Error ? e.message : "不明なエラー");
       setFiles([]);
@@ -385,12 +413,14 @@ export default function Home() {
     if (!selectedLine) return;
     setSubmitting(true);
     try {
-      const body: Record<string, string | number> = {
+      const body: Record<string, string | number | boolean> = {
         file_path: selectedLine.file_path,
         line_number: selectedLine.line_number,
         comment: commentDraft.trim(),
       };
-      if (selectedLine.line_number_end !== undefined) {
+      if (selectedLine.line_number === 0) {
+        body.whole_file = true;
+      } else if (selectedLine.line_number_end !== undefined) {
         body.line_number_end = selectedLine.line_number_end;
       }
       const res = await fetch("/api/feedback", {
@@ -415,7 +445,7 @@ export default function Home() {
   const highlightLines: string[] = currentPath
     ? [
         ...feedbackItems
-          .filter((f) => f.file_path === currentPath)
+          .filter((f) => f.file_path === currentPath && f.line_number !== 0)
           .flatMap((f) => {
             const end = f.line_number_end ?? f.line_number;
             const ids: string[] = [];
@@ -437,7 +467,7 @@ export default function Home() {
     window.matchMedia("(prefers-color-scheme: dark)").matches;
 
   return (
-    <div className="flex min-h-screen flex-col bg-zinc-100 dark:bg-zinc-950">
+    <div className="flex h-screen flex-col overflow-hidden bg-zinc-100 dark:bg-zinc-950">
       <header className="sticky top-0 z-40 border-b border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
         <div className="mx-auto flex max-w-full items-center justify-between gap-4">
           <div>
@@ -526,14 +556,9 @@ export default function Home() {
       <main className="flex min-h-0 flex-1 overflow-hidden">
         {!error && !loading && files.length > 0 && (
           <aside
-            className="flex w-[260px] shrink-0 flex-col border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
+            className="flex min-h-0 w-[260px] shrink-0 flex-col border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
             aria-label="ファイル一覧"
           >
-            <div className="border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
-              <h2 className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
-                ファイル
-              </h2>
-            </div>
             <div className="flex items-center gap-0.5 border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">
               <button
                 type="button"
@@ -571,7 +596,7 @@ export default function Home() {
                 </svg>
               </button>
             </div>
-            <nav className="flex-1 overflow-y-auto py-1">
+            <nav className="min-h-0 flex-1 overflow-y-auto py-1">
               {fileTree.map((node) => (
                 <FileTreeNodes
                   key={node.type === "folder" ? node.path : node.path}
@@ -617,11 +642,11 @@ export default function Home() {
                           setCommentDraft(item.comment ?? "");
                         }}
                         className="w-full truncate px-3 py-1.5 text-left text-xs text-zinc-600 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                        title={`${item.file_path}:${item.line_number_end != null ? `${item.line_number}–${item.line_number_end}` : item.line_number} — ${(item.comment ?? "").slice(0, 80)}`}
+                        title={`${item.file_path}:${item.line_number === 0 ? "ファイル全体" : item.line_number_end != null ? `${item.line_number}–${item.line_number_end}` : item.line_number} — ${(item.comment ?? "").slice(0, 80)}`}
                       >
                         <span className="font-medium">{item.file_path}</span>
                         <span className="text-zinc-400 dark:text-zinc-500">
-                          :{item.line_number_end != null ? `${item.line_number}–${item.line_number_end}` : item.line_number}
+                          :{item.line_number === 0 ? "ファイル全体" : item.line_number_end != null ? `${item.line_number}–${item.line_number_end}` : item.line_number}
                         </span>
                         {" — "}
                         <span className="truncate">
@@ -704,10 +729,27 @@ export default function Home() {
 
           {!error && files.length > 0 && currentPath && (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-              <div className="shrink-0 border-b border-zinc-200 px-4 py-2 dark:border-zinc-800">
-                <p className="truncate text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              <div className="flex shrink-0 items-center gap-2 border-b border-zinc-200 px-4 py-2 dark:border-zinc-800">
+                <p className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-700 dark:text-zinc-300">
                   {currentPath}
                 </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const existing = feedbackItems.find(
+                      (f) => f.file_path === currentPath && f.line_number === 0
+                    );
+                    setSelectedLine({ file_path: currentPath, line_number: 0 });
+                    setCommentDraft(existing?.comment ?? "");
+                  }}
+                  className="shrink-0 rounded p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                  title="ファイル全体に指摘"
+                  aria-label="ファイル全体に指摘"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden>
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                  </svg>
+                </button>
               </div>
               {selectionPending && selectionPending.file_path === currentPath && (
                 <div className="shrink-0 flex items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
@@ -795,13 +837,20 @@ export default function Home() {
               id="comment-dialog-title"
               className="mb-3 text-base font-medium text-zinc-700 dark:text-zinc-300"
             >
-              {selectedLine.file_path} 行 L{selectedLine.line_number}
-              {selectedLine.line_number_end != null ? `–${selectedLine.line_number_end}` : ""} にコメント
+              {selectedLine.line_number === 0
+                ? `${selectedLine.file_path} にコメント（ファイル全体）`
+                : `${selectedLine.file_path} 行 L${selectedLine.line_number}${selectedLine.line_number_end != null ? `–${selectedLine.line_number_end}` : ""} にコメント`}
             </h2>
             <textarea
               value={commentDraft}
               onChange={(e) => setCommentDraft(e.target.value)}
-              placeholder="指摘や修正依頼を入力..."
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && e.shiftKey) {
+                  e.preventDefault();
+                  if (!submitting) handleSubmitComment();
+                }
+              }}
+              placeholder="指摘や修正依頼を入力...（Shift+Enter で保存）"
               className="mb-4 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
               rows={4}
               autoFocus

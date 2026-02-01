@@ -28,17 +28,19 @@ export async function POST(request: NextRequest) {
       x &&
       typeof x === "object" &&
       "file_path" in x &&
-      "line_number" in x &&
-      "comment" in x
+      "comment" in x &&
+      ("line_number" in x || "whole_file" in x)
     ) {
       const o = x as Record<string, unknown>;
-      let line_number = Number(o.line_number);
+      const isWholeFile =
+        "whole_file" in o && (o.whole_file === true || o.whole_file === "true");
+      let line_number = isWholeFile ? 0 : Number(o.line_number);
       const rawEnd =
         "line_number_end" in o && o.line_number_end != null
           ? Number(o.line_number_end)
           : undefined;
       let line_number_end: number | undefined;
-      if (rawEnd !== undefined && !Number.isNaN(rawEnd)) {
+      if (!isWholeFile && rawEnd !== undefined && !Number.isNaN(rawEnd)) {
         if (line_number > rawEnd) {
           [line_number, line_number_end] = [rawEnd, line_number];
         } else {
@@ -50,11 +52,14 @@ export async function POST(request: NextRequest) {
       }
       const item: FeedbackItem = {
         file_path: String(o.file_path),
-        line_number,
+        line_number: isWholeFile ? 0 : line_number,
         comment: String(o.comment),
       };
       if (line_number_end !== undefined) {
         item.line_number_end = line_number_end;
+      }
+      if (isWholeFile || line_number === 0) {
+        item.whole_file = true;
       }
       return item;
     }
@@ -83,10 +88,10 @@ export async function POST(request: NextRequest) {
   const single = asItem(body);
   if (!single) {
     return NextResponse.json(
-      {
-        error:
-          "リクエストボディに file_path, line_number, comment を含めてください",
-      },
+        {
+          error:
+          "リクエストボディに file_path, comment と line_number または whole_file を含めてください",
+        },
       { status: 400 }
     );
   }

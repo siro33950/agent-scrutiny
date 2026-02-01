@@ -2,10 +2,17 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import path from "path";
 import yaml from "js-yaml";
 
+/**
+ * 1 件の指摘。行範囲またはファイル全体。
+ * whole_file が true のときはファイル全体への指摘（line_number は 0、line_number_end は省略）。
+ * 後方互換のため line_number === 0 かつ whole_file 未指定もファイル全体として扱う。
+ */
 export interface FeedbackItem {
   file_path: string;
   line_number: number;
   line_number_end?: number;
+  /** true のときファイル全体への指摘。YAML 出力で意図が分かるように明示する。 */
+  whole_file?: boolean;
   comment: string;
 }
 
@@ -34,23 +41,26 @@ function asFeedbackItem(x: unknown): FeedbackItem | null {
     !x ||
     typeof x !== "object" ||
     !("file_path" in x) ||
-    !("line_number" in x) ||
     !("comment" in x)
   ) {
     return null;
   }
   const o = x as Record<string, unknown>;
-  const line_number = Number(o.line_number);
+  const isWholeFile =
+    "whole_file" in o && (o.whole_file === true || o.whole_file === "true");
+  if (!isWholeFile && !("line_number" in o)) return null;
+  const line_number = isWholeFile ? 0 : Number(o.line_number);
   const line_number_end =
-    "line_number_end" in o && o.line_number_end != null
-      ? Number(o.line_number_end)
-      : undefined;
+    isWholeFile || !("line_number_end" in o) || o.line_number_end == null
+      ? undefined
+      : Number(o.line_number_end);
+  const line_number_endValid =
+    line_number_end !== undefined && !Number.isNaN(line_number_end);
   return {
     file_path: String(o.file_path),
     line_number,
-    ...(line_number_end !== undefined && !Number.isNaN(line_number_end)
-      ? { line_number_end }
-      : {}),
+    ...(line_number_endValid ? { line_number_end } : {}),
+    ...(isWholeFile || line_number === 0 ? { whole_file: true as const } : {}),
     comment: String(o.comment),
   };
 }

@@ -84,4 +84,4 @@ tmux attach-session -t scrutiny-agent # エージェントに指示を送る（S
 
 ## ライセンス
 
-MIT
+[MIT](LICENSE)
