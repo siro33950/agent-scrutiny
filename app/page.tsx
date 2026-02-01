@@ -232,6 +232,9 @@ export default function Home() {
   >({});
   const fetchingPathsRef = useRef<Set<string>>(new Set());
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [openAccordion, setOpenAccordion] = useState<Set<string>>(
+    new Set(["directory", "changed", "comments"])
+  );
   const [feedbackItems, setFeedbackItems] = useState<FeedbackItem[]>([]);
   const [selectedLine, setSelectedLine] = useState<{
     file_path: string;
@@ -275,6 +278,7 @@ export default function Home() {
     }
   }, []);
 
+  /** 指摘一覧を API から取得して feedbackItems に反映する */
   const fetchFeedback = useCallback(async () => {
     try {
       const res = await fetch("/api/feedback");
@@ -287,6 +291,20 @@ export default function Home() {
 
   const currentPath = openTabs[activeTabIndex] ?? null;
   const fileTree = useMemo(() => buildTree(files), [files]);
+  const changedFiles = useMemo(() => {
+    const mod = [...modifiedSet].sort();
+    const untracked = [...untrackedSet].sort();
+    return [...mod, ...untracked];
+  }, [modifiedSet, untrackedSet]);
+
+  const toggleAccordion = useCallback((key: string) => {
+    setOpenAccordion((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   const toggleFolder = useCallback((path: string) => {
     setExpandedFolders((prev) => {
@@ -532,114 +550,211 @@ export default function Home() {
             className="flex min-h-0 w-[260px] shrink-0 flex-col border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
             aria-label="ファイル一覧"
           >
-            <div className="flex items-center gap-0.5 border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">
-              <button
-                type="button"
-                onClick={() => setExpandedFolders(new Set(collectFolderPaths(fileTree)))}
-                className="rounded p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                title="全部開く"
-                aria-label="全部開く"
-              >
-                <svg viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4" aria-hidden>
-                  <path d="M14 3.268V11C14 12.657 12.657 14 11 14H3.268C3.614 14.598 4.26 15 5 15H11C13.209 15 15 13.209 15 11V5C15 4.26 14.598 3.613 14 3.268ZM9.5 7.5C9.776 7.5 10 7.276 10 7C10 6.724 9.776 6.5 9.5 6.5H7.5V4.5C7.5 4.224 7.276 4 7 4C6.724 4 6.5 4.224 6.5 4.5V6.5H4.5C4.224 6.5 4 6.724 4 7C4 7.276 4.224 7.5 4.5 7.5H6.5V9.5C6.5 9.776 6.724 10 7 10C7.276 10 7.5 9.776 7.5 9.5V7.5H9.5ZM11 1C12.105 1 13 1.895 13 3V11C13 12.105 12.105 13 11 13H3C1.895 13 1 12.105 1 11V3C1 1.895 1.895 1 3 1H11ZM12 3C12 2.448 11.552 2 11 2H3C2.448 2 2 2.448 2 3V11C2 11.552 2.448 12 3 12H11C11.552 12 12 11.552 12 11V3Z" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                onClick={() => setExpandedFolders(new Set())}
-                className="rounded p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                title="全部閉じる"
-                aria-label="全部閉じる"
-              >
-                <svg viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4" aria-hidden>
-                  <path d="M14 3.268V11C14 12.657 12.657 14 11 14H3.268C3.614 14.598 4.26 15 5 15H11C13.209 15 15 13.209 15 11V5C15 4.26 14.598 3.613 14 3.268ZM9.5 7.5C9.776 7.5 10 7.276 10 7C10 6.724 9.776 6.5 9.5 6.5H4.5C4.224 6.5 4 6.724 4 7C4 7.276 4.224 7.5 4.5 7.5H9.5ZM11 1C12.105 1 13 1.895 13 3V11C13 12.105 12.105 13 11 13H3C1.895 13 1 12.105 1 11V3C1 1.895 1.895 1 3 1H11ZM12 3C12 2.448 11.552 2 11 2H3C2.448 2 2 2.448 2 3V11C2 11.552 2.448 12 3 12H11C11.552 12 12 11.552 12 11V3Z" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                onClick={fetchFiles}
-                disabled={loading}
-                className="rounded p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                title={loading ? "取得中…" : "Refresh"}
-                aria-label={loading ? "取得中…" : "Refresh"}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden>
-                  <path d="M23 4v6h-6" />
-                  <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
-                </svg>
-              </button>
-            </div>
-            <nav className="min-h-0 flex-1 overflow-y-auto py-1">
-              {fileTree.map((node) => (
-                <FileTreeNodes
-                  key={node.type === "folder" ? node.path : node.path}
-                  node={node}
-                  depth={0}
-                  openTabs={openTabs}
-                  activeTabIndex={activeTabIndex}
-                  modifiedSet={modifiedSet}
-                  untrackedSet={untrackedSet}
-                  expandedFolders={expandedFolders}
-                  onSelectFile={(path) => {
-                    const idx = openTabs.indexOf(path);
-                    if (idx >= 0) {
-                      setActiveTabIndex(idx);
-                      return;
-                    }
-                    setOpenTabs((prev) => [...prev, path]);
-                    setActiveTabIndex(openTabs.length);
-                  }}
-                  onToggleFolder={toggleFolder}
-                />
-              ))}
-            </nav>
-            {feedbackItems.length > 0 && (
-              <>
-                <div className="border-t border-zinc-200 px-3 py-2 dark:border-zinc-800">
-                  <h2 className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
-                    未送信の指摘
-                  </h2>
-                </div>
-                <ul className="max-h-40 overflow-y-auto border-t border-zinc-200 py-1 dark:border-zinc-800">
-                  {feedbackItems.map((item, idx) => (
-                    <li key={idx}>
+            <div className="flex min-h-0 flex-1 flex-col">
+              {/* ディレクトリビュー（上・残りスペースを占有） */}
+              <div className="flex min-h-0 flex-1 flex-col border-b border-zinc-200 dark:border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => toggleAccordion("directory")}
+                  className="flex w-full shrink-0 items-center gap-2 px-3 py-2 text-left text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  aria-expanded={openAccordion.has("directory")}
+                >
+                  <span className="shrink-0 w-4 text-center text-[10px] text-zinc-500 dark:text-zinc-400" aria-hidden>
+                    {openAccordion.has("directory") ? "v" : ">"}
+                  </span>
+                  ディレクトリ
+                </button>
+                {openAccordion.has("directory") && (
+                  <>
+                    <div className="flex shrink-0 items-center gap-0.5 border-t border-zinc-200 px-2 py-1.5 dark:border-zinc-800">
                       <button
                         type="button"
-                        onClick={() => {
-                          const path = item.file_path;
-                          let idx = openTabs.indexOf(path);
-                          if (idx < 0) {
-                            setOpenTabs((prev) => [...prev, path]);
-                            idx = openTabs.length;
-                          }
-                          setActiveTabIndex(idx);
-                          setSelectedLine({
-                            file_path: path,
-                            line_number: item.line_number,
-                            ...(item.line_number_end !== undefined
-                              ? { line_number_end: item.line_number_end }
-                              : {}),
-                          });
-                          setCommentDraft(item.comment ?? "");
-                        }}
-                        className="w-full truncate px-3 py-1.5 text-left text-xs text-zinc-600 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                        title={`${item.file_path}:${item.line_number === 0 ? "ファイル全体" : item.line_number_end != null ? `${item.line_number}–${item.line_number_end}` : item.line_number} — ${(item.comment ?? "").slice(0, 80)}`}
+                        onClick={() => setExpandedFolders(new Set(collectFolderPaths(fileTree)))}
+                        className="rounded p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                        title="全部開く"
+                        aria-label="全部開く"
                       >
-                        <span className="font-medium">{item.file_path}</span>
-                        <span className="text-zinc-400 dark:text-zinc-500">
-                          :{item.line_number === 0 ? "ファイル全体" : item.line_number_end != null ? `${item.line_number}–${item.line_number_end}` : item.line_number}
-                        </span>
-                        {" — "}
-                        <span className="truncate">
-                          {(item.comment ?? "").slice(0, 30)}
-                          {(item.comment ?? "").length > 30 ? "…" : ""}
-                        </span>
+                        <svg viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4" aria-hidden>
+                          <path d="M14 3.268V11C14 12.657 12.657 14 11 14H3.268C3.614 14.598 4.26 15 5 15H11C13.209 15 15 13.209 15 11V5C15 4.26 14.598 3.613 14 3.268ZM9.5 7.5C9.776 7.5 10 7.276 10 7C10 6.724 9.776 6.5 9.5 6.5H7.5V4.5C7.5 4.224 7.276 4 7 4C6.724 4 6.5 4.224 6.5 4.5V6.5H4.5C4.224 6.5 4 6.724 4 7C4 7.276 4.224 7.5 4.5 7.5H6.5V9.5C6.5 9.776 6.724 10 7 10C7.276 10 7.5 9.776 7.5 9.5V7.5H9.5ZM11 1C12.105 1 13 1.895 13 3V11C13 12.105 12.105 13 11 13H3C1.895 13 1 12.105 1 11V3C1 1.895 1.895 1 3 1H11ZM12 3C12 2.448 11.552 2 11 2H3C2.448 2 2 2.448 2 3V11C2 11.552 2.448 12 3 12H11C11.552 12 12 11.552 12 11V3Z" />
+                        </svg>
                       </button>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
+                      <button
+                        type="button"
+                        onClick={() => setExpandedFolders(new Set())}
+                        className="rounded p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                        title="全部閉じる"
+                        aria-label="全部閉じる"
+                      >
+                        <svg viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4" aria-hidden>
+                          <path d="M14 3.268V11C14 12.657 12.657 14 11 14H3.268C3.614 14.598 4.26 15 5 15H11C13.209 15 15 13.209 15 11V5C15 4.26 14.598 3.613 14 3.268ZM9.5 7.5C9.776 7.5 10 7.276 10 7C10 6.724 9.776 6.5 9.5 6.5H4.5C4.224 6.5 4 6.724 4 7C4 7.276 4.224 7.5 4.5 7.5H9.5ZM11 1C12.105 1 13 1.895 13 3V11C13 12.105 12.105 13 11 13H3C1.895 13 1 12.105 1 11V3C1 1.895 1.895 1 3 1H11ZM12 3C12 2.448 11.552 2 11 2H3C2.448 2 2 2.448 2 3V11C2 11.552 2.448 12 3 12H11C11.552 12 12 11.552 12 11V3Z" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={fetchFiles}
+                        disabled={loading}
+                        className="rounded p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                        title={loading ? "取得中…" : "Refresh"}
+                        aria-label={loading ? "取得中…" : "Refresh"}
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden>
+                          <path d="M23 4v6h-6" />
+                          <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
+                        </svg>
+                      </button>
+                    </div>
+                    <nav className="min-h-0 flex-1 overflow-y-auto py-1">
+                      {fileTree.map((node) => (
+                        <FileTreeNodes
+                          key={node.type === "folder" ? node.path : node.path}
+                          node={node}
+                          depth={0}
+                          openTabs={openTabs}
+                          activeTabIndex={activeTabIndex}
+                          modifiedSet={modifiedSet}
+                          untrackedSet={untrackedSet}
+                          expandedFolders={expandedFolders}
+                          onSelectFile={(path) => {
+                            const idx = openTabs.indexOf(path);
+                            if (idx >= 0) {
+                              setActiveTabIndex(idx);
+                              return;
+                            }
+                            setOpenTabs((prev) => [...prev, path]);
+                            setActiveTabIndex(openTabs.length);
+                          }}
+                          onToggleFolder={toggleFolder}
+                        />
+                      ))}
+                    </nav>
+                  </>
+                )}
+              </div>
+
+              {/* 変更ファイル・指摘（下に寄せる） */}
+              <div className="shrink-0">
+              {/* 変更ファイル */}
+              <div className="border-b border-zinc-200 dark:border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => toggleAccordion("changed")}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  aria-expanded={openAccordion.has("changed")}
+                >
+                  <span className="shrink-0 w-4 text-center text-[10px] text-zinc-500 dark:text-zinc-400" aria-hidden>
+                    {openAccordion.has("changed") ? "v" : ">"}
+                  </span>
+                  変更ファイル ({changedFiles.length})
+                </button>
+                {openAccordion.has("changed") && (
+                  <div className="max-h-48 overflow-y-auto border-t border-zinc-200 py-1 dark:border-zinc-800">
+                    {changedFiles.length === 0 ? (
+                      <p className="px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">変更はありません</p>
+                    ) : (
+                      <ul>
+                        {changedFiles.map((path) => {
+                          const isModified = modifiedSet.has(path);
+                          const isUntracked = untrackedSet.has(path);
+                          const nameColor = isModified
+                            ? "text-amber-700 dark:text-amber-400"
+                            : isUntracked
+                              ? "text-green-600 dark:text-green-400"
+                              : "text-zinc-600 dark:text-zinc-400";
+                          const stateBadge = isModified ? (
+                            <span className="shrink-0 rounded px-1 text-[10px] font-medium text-amber-700 dark:text-amber-400" title="変更あり">M</span>
+                          ) : isUntracked ? (
+                            <span className="shrink-0 text-[10px] font-medium text-zinc-500 dark:text-zinc-500" title="未追跡">U</span>
+                          ) : null;
+                          return (
+                            <li key={path}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const idx = openTabs.indexOf(path);
+                                  if (idx >= 0) {
+                                    setActiveTabIndex(idx);
+                                    return;
+                                  }
+                                  setOpenTabs((prev) => [...prev, path]);
+                                  setActiveTabIndex(openTabs.length);
+                                }}
+                                className={`flex w-full items-center gap-2 truncate px-3 py-1.5 text-left text-sm font-mono hover:bg-zinc-50 dark:hover:bg-zinc-800 ${nameColor}`}
+                                title={path}
+                              >
+                                <span className="min-w-0 flex-1 truncate">{path}</span>
+                                {stateBadge}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* 指摘・コメント */}
+              <div className="border-b border-zinc-200 dark:border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => toggleAccordion("comments")}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  aria-expanded={openAccordion.has("comments")}
+                >
+                  <span className="shrink-0 w-4 text-center text-[10px] text-zinc-500 dark:text-zinc-400" aria-hidden>
+                    {openAccordion.has("comments") ? "v" : ">"}
+                  </span>
+                  指摘 ({feedbackItems.length})
+                </button>
+                {openAccordion.has("comments") && (
+                  <div className="max-h-48 overflow-y-auto border-t border-zinc-200 py-1 dark:border-zinc-800">
+                    {feedbackItems.length === 0 ? (
+                      <p className="px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">指摘はありません</p>
+                    ) : (
+                      <ul>
+                        {feedbackItems.map((item, idx) => (
+                          <li key={idx}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const path = item.file_path;
+                                let tabIdx = openTabs.indexOf(path);
+                                if (tabIdx < 0) {
+                                  setOpenTabs((prev) => [...prev, path]);
+                                  tabIdx = openTabs.length;
+                                }
+                                setActiveTabIndex(tabIdx);
+                                setSelectedLine({
+                                  file_path: path,
+                                  line_number: item.line_number,
+                                  ...(item.line_number_end !== undefined
+                                    ? { line_number_end: item.line_number_end }
+                                    : {}),
+                                });
+                                setCommentDraft(item.comment ?? "");
+                              }}
+                              className="w-full truncate px-3 py-1.5 text-left text-xs text-zinc-600 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                              title={`${item.file_path}:${item.line_number === 0 ? "ファイル全体" : item.line_number_end != null ? `${item.line_number}–${item.line_number_end}` : item.line_number} — ${(item.comment ?? "").slice(0, 80)}`}
+                            >
+                              <span className="font-medium">{item.file_path}</span>
+                              <span className="text-zinc-400 dark:text-zinc-500">
+                                :{item.line_number === 0 ? "ファイル全体" : item.line_number_end != null ? `${item.line_number}–${item.line_number_end}` : item.line_number}
+                              </span>
+                              {" — "}
+                              <span className="truncate">
+                                {(item.comment ?? "").slice(0, 30)}
+                                {(item.comment ?? "").length > 30 ? "…" : ""}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+              </div>
+            </div>
           </aside>
         )}
 
