@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MonacoDiffViewer } from "@/app/components/MonacoDiffViewer";
 import type { FeedbackItem } from "@/lib/feedback";
 
@@ -100,8 +100,8 @@ function getFileTypeIcon(filePath: string): string {
 function FileTreeNodes({
   node,
   depth,
-  files,
-  selectedIndex,
+  openTabs,
+  activeTabIndex,
   modifiedSet,
   untrackedSet,
   expandedFolders,
@@ -110,8 +110,8 @@ function FileTreeNodes({
 }: {
   node: TreeNode;
   depth: number;
-  files: string[];
-  selectedIndex: number;
+  openTabs: string[];
+  activeTabIndex: number;
   modifiedSet: Set<string>;
   untrackedSet: Set<string>;
   expandedFolders: Set<string>;
@@ -149,8 +149,8 @@ function FileTreeNodes({
                 key={child.type === "folder" ? child.path : child.path}
                 node={child}
                 depth={depth + 1}
-                files={files}
-                selectedIndex={selectedIndex}
+                openTabs={openTabs}
+                activeTabIndex={activeTabIndex}
                 modifiedSet={modifiedSet}
                 untrackedSet={untrackedSet}
                 expandedFolders={expandedFolders}
@@ -164,8 +164,7 @@ function FileTreeNodes({
     );
   }
   const path = node.path;
-  const index = files.indexOf(path);
-  const isSelected = index >= 0 && index === selectedIndex;
+  const isSelected = openTabs[activeTabIndex] === path;
   const isModified = modifiedSet.has(path);
   const isUntracked = untrackedSet.has(path);
   const isTrackedClean = !isModified && !isUntracked;
@@ -226,13 +225,13 @@ export default function Home() {
   const [files, setFiles] = useState<string[]>([]);
   const [modifiedSet, setModifiedSet] = useState<Set<string>>(new Set());
   const [untrackedSet, setUntrackedSet] = useState<Set<string>>(new Set());
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [openTabs, setOpenTabs] = useState<string[]>([]);
+  const [activeTabIndex, setActiveTabIndex] = useState(0);
+  const [fileContentCache, setFileContentCache] = useState<
+    Record<string, { oldContent: string; newContent: string }>
+  >({});
+  const fetchingPathsRef = useRef<Set<string>>(new Set());
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
-  const [fileContent, setFileContent] = useState<{
-    oldContent: string;
-    newContent: string;
-  } | null>(null);
-  const [loadingFileContent, setLoadingFileContent] = useState(false);
   const [feedbackItems, setFeedbackItems] = useState<FeedbackItem[]>([]);
   const [selectedLine, setSelectedLine] = useState<{
     file_path: string;
@@ -257,7 +256,6 @@ export default function Home() {
         setFiles([]);
         setModifiedSet(new Set());
         setUntrackedSet(new Set());
-        setFileContent(null);
         return;
       }
       const list = Array.isArray(data.files) ? data.files : [];
@@ -266,16 +264,12 @@ export default function Home() {
       setFiles(list);
       setModifiedSet(new Set(mod));
       setUntrackedSet(new Set(untracked));
-      setFileContent(null);
-      setSelectedIndex((prev) => (prev >= list.length ? 0 : prev));
-      const tree = buildTree(list);
       setExpandedFolders(new Set());
     } catch (e) {
       setError(e instanceof Error ? e.message : "不明なエラー");
       setFiles([]);
       setModifiedSet(new Set());
       setUntrackedSet(new Set());
-      setFileContent(null);
     } finally {
       setLoading(false);
     }
@@ -291,7 +285,7 @@ export default function Home() {
     }
   }, []);
 
-  const currentPath = files[selectedIndex] ?? null;
+  const currentPath = openTabs[activeTabIndex] ?? null;
   const fileTree = useMemo(() => buildTree(files), [files]);
 
   const toggleFolder = useCallback((path: string) => {
@@ -312,39 +306,40 @@ export default function Home() {
   }, [fetchFeedback]);
 
   useEffect(() => {
-    if (!currentPath?.trim()) {
-      setFileContent(null);
-      return;
-    }
-    let aborted = false;
-    const controller = new AbortController();
-    setLoadingFileContent(true);
-    setFileContent(null);
-    fetch(
-      `/api/file-content?path=${encodeURIComponent(currentPath)}`,
-      { signal: controller.signal }
-    )
-      .then((res) => res.json())
-      .then((data: { oldContent?: string; newContent?: string }) => {
-        if (!aborted) {
-          setFileContent({
-            oldContent: data.oldContent ?? "",
-            newContent: data.newContent ?? "",
-          });
-        }
-      })
-      .catch((err: { name?: string }) => {
-        if (err.name === "AbortError") return;
-        setFileContent({ oldContent: "", newContent: "" });
-      })
-      .finally(() => {
-        if (!aborted) setLoadingFileContent(false);
-      });
+    const toFetch = openTabs.filter(
+      (path) =>
+        !(path in fileContentCache) && !fetchingPathsRef.current.has(path)
+    );
+    if (toFetch.length === 0) return;
+    const aborted = new Set<string>();
+    toFetch.forEach((path) => fetchingPathsRef.current.add(path));
+    toFetch.forEach((path) => {
+      fetch(`/api/file-content?path=${encodeURIComponent(path)}`)
+        .then((res) => res.json())
+        .then((data: { oldContent?: string; newContent?: string }) => {
+          if (aborted.has(path)) return;
+          fetchingPathsRef.current.delete(path);
+          setFileContentCache((prev) => ({
+            ...prev,
+            [path]: {
+              oldContent: data.oldContent ?? "",
+              newContent: data.newContent ?? "",
+            },
+          }));
+        })
+        .catch(() => {
+          if (aborted.has(path)) return;
+          fetchingPathsRef.current.delete(path);
+          setFileContentCache((prev) => ({
+            ...prev,
+            [path]: { oldContent: "", newContent: "" },
+          }));
+        });
+    });
     return () => {
-      aborted = true;
-      controller.abort();
+      toFetch.forEach((p) => aborted.add(p));
     };
-  }, [currentPath]);
+  }, [openTabs, fileContentCache]);
 
   const onSelectLines = useCallback(
     (file_path: string, line_number: number, line_number_end?: number) => {
@@ -568,14 +563,19 @@ export default function Home() {
                   key={node.type === "folder" ? node.path : node.path}
                   node={node}
                   depth={0}
-                  files={files}
-                  selectedIndex={selectedIndex}
+                  openTabs={openTabs}
+                  activeTabIndex={activeTabIndex}
                   modifiedSet={modifiedSet}
                   untrackedSet={untrackedSet}
                   expandedFolders={expandedFolders}
                   onSelectFile={(path) => {
-                    const i = files.indexOf(path);
-                    if (i >= 0) setSelectedIndex(i);
+                    const idx = openTabs.indexOf(path);
+                    if (idx >= 0) {
+                      setActiveTabIndex(idx);
+                      return;
+                    }
+                    setOpenTabs((prev) => [...prev, path]);
+                    setActiveTabIndex(openTabs.length);
                   }}
                   onToggleFolder={toggleFolder}
                 />
@@ -594,10 +594,15 @@ export default function Home() {
                       <button
                         type="button"
                         onClick={() => {
-                          const idxOfFile = files.indexOf(item.file_path);
-                          if (idxOfFile >= 0) setSelectedIndex(idxOfFile);
+                          const path = item.file_path;
+                          let idx = openTabs.indexOf(path);
+                          if (idx < 0) {
+                            setOpenTabs((prev) => [...prev, path]);
+                            idx = openTabs.length;
+                          }
+                          setActiveTabIndex(idx);
                           setSelectedLine({
-                            file_path: item.file_path,
+                            file_path: path,
                             line_number: item.line_number,
                             ...(item.line_number_end !== undefined
                               ? { line_number_end: item.line_number_end }
@@ -685,14 +690,66 @@ export default function Home() {
             </div>
           )}
 
-          {!error && files.length > 0 && !currentPath && (
+          {!error && files.length > 0 && openTabs.length === 0 && (
             <div className="flex flex-1 items-center justify-center p-8 text-sm text-zinc-500 dark:text-zinc-400">
               ファイルを選択してください
             </div>
           )}
 
-          {!error && files.length > 0 && currentPath && (
+          {!error && files.length > 0 && openTabs.length > 0 && (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+              <div className="flex shrink-0 items-center gap-1 border-b border-zinc-200 bg-zinc-50/50 px-2 py-1 dark:border-zinc-800 dark:bg-zinc-900/50">
+                {openTabs.map((path, i) => {
+                  const tabLabel = path.split("/").pop() ?? path;
+                  const isActive = i === activeTabIndex;
+                  return (
+                    <div
+                      key={path}
+                      role="tab"
+                      aria-selected={isActive}
+                      className={`flex min-w-0 max-w-[180px] shrink-0 items-center gap-1 rounded-md px-2 py-1.5 text-sm ${
+                        isActive
+                          ? "bg-white font-medium text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100"
+                          : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setActiveTabIndex(i)}
+                        className="min-w-0 flex-1 truncate text-left"
+                        title={path}
+                      >
+                        {tabLabel}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const newTabs = openTabs.filter((_, idx) => idx !== i);
+                          setOpenTabs(newTabs);
+                          const newIndex =
+                            i < activeTabIndex
+                              ? activeTabIndex - 1
+                              : i === activeTabIndex
+                                ? Math.min(activeTabIndex, newTabs.length - 1)
+                                : activeTabIndex;
+                          setActiveTabIndex(Math.max(0, newIndex));
+                          setFileContentCache((prev) => {
+                            const next = { ...prev };
+                            delete next[path];
+                            return next;
+                          });
+                        }}
+                        className="shrink-0 rounded p-0.5 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+                        title="タブを閉じる"
+                        aria-label="タブを閉じる"
+                      >
+                        <span className="text-zinc-500 dark:text-zinc-400">×</span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
               <div className="flex shrink-0 items-center gap-2 border-b border-zinc-200 px-4 py-2 dark:border-zinc-800">
                 <p className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-700 dark:text-zinc-300">
                   {currentPath}
@@ -716,14 +773,14 @@ export default function Home() {
                 </button>
               </div>
               <div className="min-h-0 flex-1 flex flex-col overflow-auto">
-                {loadingFileContent ? (
+                {currentPath && !fileContentCache[currentPath] ? (
                   <div className="flex items-center justify-center p-8 text-sm text-zinc-500 dark:text-zinc-400">
                     読み込み中…
                   </div>
-                ) : fileContent ? (
+                ) : currentPath && fileContentCache[currentPath] ? (
                   <MonacoDiffViewer
-                    original={fileContent.oldContent}
-                    modified={fileContent.newContent}
+                    original={fileContentCache[currentPath].oldContent}
+                    modified={fileContentCache[currentPath].newContent}
                     filePath={currentPath}
                     theme={isDark ? "vs-dark" : "light"}
                     onSelectLines={onSelectLines}
