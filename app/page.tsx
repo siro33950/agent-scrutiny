@@ -465,13 +465,13 @@ export default function Home() {
             const ids: string[] = [];
             for (let n = f.line_number; n <= end; n++) {
               ids.push(`R-${n}`);
-              ids.push(`undefined-${n}`);
+              ids.push(`L-${n}`);
             }
             return ids;
           }),
         ...(selectionPending &&
         selectionPending.file_path === currentPath
-          ? [`R-${selectionPending.line_number}`, `undefined-${selectionPending.line_number}`]
+          ? [`R-${selectionPending.line_number}`, `L-${selectionPending.line_number}`]
           : []),
       ]
     : [];

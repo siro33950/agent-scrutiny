@@ -43,6 +43,7 @@ export async function POST() {
   const sendText = spawnSync("tmux", ["send-keys", "-t", agentTarget, "-l", oneLine], {
     encoding: "utf-8",
     maxBuffer: 1024 * 1024,
+    timeout: 5000,
   });
 
   if (sendText.error) {
@@ -52,15 +53,20 @@ export async function POST() {
     );
   }
 
-  if (sendText.status !== 0 && sendText.stderr) {
+  if (sendText.status !== 0 || sendText.signal) {
     return NextResponse.json(
-      { error: sendText.stderr.trim() || "tmux send-keys に失敗しました" },
+      {
+        error:
+          sendText.stderr?.trim() ||
+          `tmux send-keys failed with status ${sendText.status}${sendText.signal ? " signal " + sendText.signal : ""}`,
+      },
       { status: 500 }
     );
   }
 
   const sendEnter = spawnSync("tmux", ["send-keys", "-t", agentTarget, "Enter"], {
     encoding: "utf-8",
+    timeout: 5000,
   });
 
   if (sendEnter.error) {
@@ -70,9 +76,13 @@ export async function POST() {
     );
   }
 
-  if (sendEnter.status !== 0 && sendEnter.stderr) {
+  if (sendEnter.status !== 0 || sendEnter.signal) {
     return NextResponse.json(
-      { error: sendEnter.stderr.trim() || "tmux send-keys Enter に失敗しました" },
+      {
+        error:
+          sendEnter.stderr?.trim() ||
+          `tmux send-keys failed with status ${sendEnter.status}${sendEnter.signal ? " signal " + sendEnter.signal : ""}`,
+      },
       { status: 500 }
     );
   }

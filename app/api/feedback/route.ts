@@ -34,8 +34,16 @@ export async function POST(request: NextRequest) {
       const o = x as Record<string, unknown>;
       const isWholeFile =
         "whole_file" in o && (o.whole_file === true || o.whole_file === "true");
-      const rawLine = Number(o.line_number);
-      let line_number = isWholeFile ? 0 : (Number.isFinite(rawLine) ? rawLine : 0);
+      let line_number: number;
+      if (isWholeFile) {
+        line_number = 0;
+      } else {
+        const rawLine = Number(o.line_number);
+        if (!Number.isFinite(rawLine)) {
+          return null;
+        }
+        line_number = rawLine;
+      }
       const rawEnd =
         "line_number_end" in o && o.line_number_end != null
           ? Number(o.line_number_end)
@@ -59,7 +67,7 @@ export async function POST(request: NextRequest) {
       if (line_number_end !== undefined) {
         item.line_number_end = line_number_end;
       }
-      if (isWholeFile || line_number === 0) {
+      if (isWholeFile) {
         item.whole_file = true;
       }
       return item;
