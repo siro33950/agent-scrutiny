@@ -1,12 +1,13 @@
 import { spawnSync } from "child_process";
 import { NextResponse } from "next/server";
-import path from "path";
-import { loadConfig } from "@/lib/config";
+import { loadConfig, getTargetDir } from "@/lib/config";
 
-export async function GET() {
+export async function GET(request: Request) {
   const projectRoot = process.cwd();
   const config = loadConfig(projectRoot);
-  const targetDir = path.resolve(projectRoot, config.targetDir || projectRoot);
+  const { searchParams } = new URL(request.url);
+  const target = searchParams.get("target") ?? undefined;
+  const targetDir = getTargetDir(projectRoot, config, target);
 
   const result = spawnSync("git", ["diff", "HEAD"], {
     cwd: targetDir,

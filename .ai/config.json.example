@@ -1,5 +1,8 @@
 {
-  "targetDir": "/path/to/your/git/repo",
+  "targets": {
+    "default": ".",
+    "subapp": "./packages/web"
+  },
   "tmuxSession": "scrutiny",
   "agentCommand": "agent"
 }

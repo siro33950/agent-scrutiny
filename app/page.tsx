@@ -220,6 +220,9 @@ function FileTreeNodes({
 }
 
 export default function Home() {
+  const [targets, setTargets] = useState<string[]>([]);
+  const [defaultTarget, setDefaultTarget] = useState<string>("");
+  const [selectedTarget, setSelectedTarget] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [files, setFiles] = useState<string[]>([]);
@@ -232,8 +235,9 @@ export default function Home() {
   >({});
   const fetchingPathsRef = useRef<Set<string>>(new Set());
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [treeViewMode, setTreeViewMode] = useState<"changed" | "full">("full");
   const [openAccordion, setOpenAccordion] = useState<Set<string>>(
-    new Set(["directory", "changed", "comments"])
+    new Set(["directory", "comments"])
   );
   const [feedbackItems, setFeedbackItems] = useState<FeedbackItem[]>([]);
   const [selectedLine, setSelectedLine] = useState<{
@@ -248,11 +252,13 @@ export default function Home() {
   const [dismissBanner, setDismissBanner] = useState<string | null>(null);
 
   const fetchFiles = useCallback(async () => {
+    const target = selectedTarget || defaultTarget;
+    if (!target) return;
     setLoading(true);
     setError(null);
     setDismissBanner(null);
     try {
-      const res = await fetch("/api/files");
+      const res = await fetch(`/api/files?target=${encodeURIComponent(target)}`);
       const data = await res.json();
       if (!res.ok) {
         setError(data.error ?? "ファイル一覧の取得に失敗しました");
@@ -276,7 +282,30 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
+  }, [selectedTarget, defaultTarget]);
+
+  /** 初回: targets を取得して selectedTarget をセット */
+  useEffect(() => {
+    fetch("/api/targets")
+      .then((res) => res.json())
+      .then((data: { targets?: string[]; defaultTarget?: string }) => {
+        const list = Array.isArray(data.targets) ? data.targets : [];
+        const def = typeof data.defaultTarget === "string" ? data.defaultTarget : (list[0] ?? "default");
+        setTargets(list);
+        setDefaultTarget(def);
+        setSelectedTarget((prev) => (prev === "" ? def : prev));
+      })
+      .catch(() => {});
   }, []);
+
+  /** selectedTarget が決まったらファイル一覧を取得。target 変更時はタブ・キャッシュをクリア */
+  useEffect(() => {
+    if (!selectedTarget) return;
+    setOpenTabs([]);
+    setActiveTabIndex(0);
+    setFileContentCache({});
+    fetchFiles();
+  }, [selectedTarget]); // eslint-disable-line react-hooks/exhaustive-deps -- fetchFiles は selectedTarget 依存のため初回のみ fetchFiles で十分
 
   /** 指摘一覧を API から取得して feedbackItems に反映する */
   const fetchFeedback = useCallback(async () => {
@@ -296,6 +325,7 @@ export default function Home() {
     const untracked = [...untrackedSet].sort();
     return [...mod, ...untracked];
   }, [modifiedSet, untrackedSet]);
+  const changedFilesTree = useMemo(() => buildTree(changedFiles), [changedFiles]);
 
   const toggleAccordion = useCallback((key: string) => {
     setOpenAccordion((prev) => {
@@ -316,10 +346,6 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    fetchFiles();
-  }, [fetchFiles]);
-
-  useEffect(() => {
     fetchFeedback();
   }, [fetchFeedback]);
 
@@ -333,11 +359,13 @@ export default function Home() {
     ].filter((path) => !fetchingPathsRef.current.has(path));
     if (toFetch.length === 0) return;
     const aborted = new Set<string>();
-    for (const path of toFetch) {
-      fetchingPathsRef.current.add(path);
-    }
-    for (const path of toFetch) {
-      fetch(`/api/file-content?path=${encodeURIComponent(path)}`)
+    toFetch.forEach((path) => fetchingPathsRef.current.add(path));
+    const target = selectedTarget || defaultTarget;
+    toFetch.forEach((path) => {
+      const url = target
+        ? `/api/file-content?path=${encodeURIComponent(path)}&target=${encodeURIComponent(target)}`
+        : `/api/file-content?path=${encodeURIComponent(path)}`;
+      fetch(url)
         .then((res) => res.json())
         .then((data: { oldContent?: string; newContent?: string }) => {
           fetchingPathsRef.current.delete(path);
@@ -364,13 +392,13 @@ export default function Home() {
             [path]: { oldContent: "", newContent: "" },
           }));
         });
-    }
+    });
     return () => {
       for (const p of toFetch) {
         aborted.add(p);
       }
     };
-  }, [openTabs, activeTabIndex, fileContentCache]);
+  }, [openTabs, activeTabIndex, fileContentCache, selectedTarget, defaultTarget]);
 
   const onSelectLines = useCallback(
     (file_path: string, line_number: number, line_number_end?: number) => {
@@ -471,6 +499,20 @@ export default function Home() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {targets.length > 0 && (
+              <select
+                value={selectedTarget || defaultTarget}
+                onChange={(e) => setSelectedTarget(e.target.value)}
+                className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200"
+                aria-label="ルート（target）を選択"
+              >
+                {targets.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            )}
             <button
               type="button"
               onClick={async () => {
@@ -478,7 +520,12 @@ export default function Home() {
                 setSubmitMessage("");
                 setDismissBanner(null);
                 try {
-                  const res = await fetch("/api/submit", { method: "POST" });
+                  const target = selectedTarget || defaultTarget;
+                  const res = await fetch("/api/submit", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(target ? { target } : {}),
+                  });
                   const data = await res.json();
                   if (res.ok) {
                     setSubmitStatus("success");
@@ -552,25 +599,38 @@ export default function Home() {
             aria-label="ファイル一覧"
           >
             <div className="flex min-h-0 flex-1 flex-col">
-              {/* ディレクトリビュー（上・残りスペースを占有） */}
+              {/* ツリー（タブ＋ツールバー＋ツリー本体） */}
               <div className="flex min-h-0 flex-1 flex-col border-b border-zinc-200 dark:border-zinc-800">
-                <button
-                  type="button"
-                  onClick={() => toggleAccordion("directory")}
-                  className="flex w-full shrink-0 items-center gap-2 px-3 py-2 text-left text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                  aria-expanded={openAccordion.has("directory")}
-                >
-                  <span className="shrink-0 w-4 text-center text-[10px] text-zinc-500 dark:text-zinc-400" aria-hidden>
-                    {openAccordion.has("directory") ? "v" : ">"}
-                  </span>
-                  ディレクトリ
-                </button>
-                {openAccordion.has("directory") && (
-                  <>
+                    <div className="flex shrink-0 border-t border-zinc-200 dark:border-zinc-800">
+                      <button
+                        type="button"
+                        onClick={() => setTreeViewMode("changed")}
+                        className={`flex-1 px-2 py-1.5 text-center text-xs font-medium ${
+                          treeViewMode === "changed"
+                            ? "border-b-2 border-emerald-600 text-zinc-900 dark:border-emerald-500 dark:text-zinc-100"
+                            : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+                        }`}
+                        aria-pressed={treeViewMode === "changed"}
+                      >
+                        変更ファイル ({changedFiles.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTreeViewMode("full")}
+                        className={`flex-1 px-2 py-1.5 text-center text-xs font-medium ${
+                          treeViewMode === "full"
+                            ? "border-b-2 border-emerald-600 text-zinc-900 dark:border-emerald-500 dark:text-zinc-100"
+                            : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+                        }`}
+                        aria-pressed={treeViewMode === "full"}
+                      >
+                        全体
+                      </button>
+                    </div>
                     <div className="flex shrink-0 items-center gap-0.5 border-t border-zinc-200 px-2 py-1.5 dark:border-zinc-800">
                       <button
                         type="button"
-                        onClick={() => setExpandedFolders(new Set(collectFolderPaths(fileTree)))}
+                        onClick={() => setExpandedFolders(new Set(collectFolderPaths(treeViewMode === "changed" ? changedFilesTree : fileTree)))}
                         className="rounded p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
                         title="全部開く"
                         aria-label="全部開く"
@@ -605,75 +665,22 @@ export default function Home() {
                       </button>
                     </div>
                     <nav className="min-h-0 flex-1 overflow-y-auto py-1">
-                      {fileTree.map((node) => (
-                        <FileTreeNodes
-                          key={node.type === "folder" ? node.path : node.path}
-                          node={node}
-                          depth={0}
-                          openTabs={openTabs}
-                          activeTabIndex={activeTabIndex}
-                          modifiedSet={modifiedSet}
-                          untrackedSet={untrackedSet}
-                          expandedFolders={expandedFolders}
-                          onSelectFile={(path) => {
-                            const idx = openTabs.indexOf(path);
-                            if (idx >= 0) {
-                              setActiveTabIndex(idx);
-                              return;
-                            }
-                            setOpenTabs((prev) => {
-                              const newIndex = prev.length;
-                              setActiveTabIndex(newIndex);
-                              return [...prev, path];
-                            });
-                          }}
-                          onToggleFolder={toggleFolder}
-                        />
-                      ))}
-                    </nav>
-                  </>
-                )}
-              </div>
-
-              {/* 変更ファイル・指摘（下に寄せる） */}
-              <div className="shrink-0">
-              {/* 変更ファイル */}
-              <div className="border-b border-zinc-200 dark:border-zinc-800">
-                <button
-                  type="button"
-                  onClick={() => toggleAccordion("changed")}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                  aria-expanded={openAccordion.has("changed")}
-                >
-                  <span className="shrink-0 w-4 text-center text-[10px] text-zinc-500 dark:text-zinc-400" aria-hidden>
-                    {openAccordion.has("changed") ? "v" : ">"}
-                  </span>
-                  変更ファイル ({changedFiles.length})
-                </button>
-                {openAccordion.has("changed") && (
-                  <div className="max-h-48 overflow-y-auto border-t border-zinc-200 py-1 dark:border-zinc-800">
-                    {changedFiles.length === 0 ? (
-                      <p className="px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">変更はありません</p>
-                    ) : (
-                      <ul>
-                        {changedFiles.map((path) => {
-                          const isModified = modifiedSet.has(path);
-                          const isUntracked = untrackedSet.has(path);
-                          const nameColor = isModified
-                            ? "text-amber-700 dark:text-amber-400"
-                            : isUntracked
-                              ? "text-green-600 dark:text-green-400"
-                              : "text-zinc-600 dark:text-zinc-400";
-                          const stateBadge = isModified ? (
-                            <span className="shrink-0 rounded px-1 text-[10px] font-medium text-amber-700 dark:text-amber-400" title="変更あり">M</span>
-                          ) : isUntracked ? (
-                            <span className="shrink-0 text-[10px] font-medium text-zinc-500 dark:text-zinc-500" title="未追跡">U</span>
-                          ) : null;
-                          return (
-                            <li key={path}>
-                              <button
-                                type="button"
-                                onClick={() => {
+                      {treeViewMode === "changed" ? (
+                        changedFiles.length === 0 ? (
+                          <p className="px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">変更はありません</p>
+                        ) : (
+                          <div className="py-1">
+                            {changedFilesTree.map((node) => (
+                              <FileTreeNodes
+                                key={node.type === "folder" ? node.path : node.path}
+                                node={node}
+                                depth={0}
+                                openTabs={openTabs}
+                                activeTabIndex={activeTabIndex}
+                                modifiedSet={modifiedSet}
+                                untrackedSet={untrackedSet}
+                                expandedFolders={expandedFolders}
+                                onSelectFile={(path) => {
                                   const idx = openTabs.indexOf(path);
                                   if (idx >= 0) {
                                     setActiveTabIndex(idx);
@@ -685,22 +692,42 @@ export default function Home() {
                                     return [...prev, path];
                                   });
                                 }}
-                                className={`flex w-full items-center gap-2 truncate px-3 py-1.5 text-left text-sm font-mono hover:bg-zinc-50 dark:hover:bg-zinc-800 ${nameColor}`}
-                                title={path}
-                              >
-                                <span className="min-w-0 flex-1 truncate">{path}</span>
-                                {stateBadge}
-                              </button>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
-                  </div>
-                )}
+                                onToggleFolder={toggleFolder}
+                              />
+                            ))}
+                          </div>
+                        )
+                      ) : (
+                        fileTree.map((node) => (
+                          <FileTreeNodes
+                            key={node.type === "folder" ? node.path : node.path}
+                            node={node}
+                            depth={0}
+                            openTabs={openTabs}
+                            activeTabIndex={activeTabIndex}
+                            modifiedSet={modifiedSet}
+                            untrackedSet={untrackedSet}
+                            expandedFolders={expandedFolders}
+                            onSelectFile={(path) => {
+                              const idx = openTabs.indexOf(path);
+                              if (idx >= 0) {
+                                setActiveTabIndex(idx);
+                                return;
+                              }
+                              setOpenTabs((prev) => {
+                                const newIndex = prev.length;
+                                setActiveTabIndex(newIndex);
+                                return [...prev, path];
+                              });
+                            }}
+                            onToggleFolder={toggleFolder}
+                          />
+                        ))
+                      )}
+                    </nav>
               </div>
 
-              {/* 指摘・コメント */}
+              {/* 指摘・コメント（下に寄せる） */}
               <div className="border-b border-zinc-200 dark:border-zinc-800">
                 <button
                   type="button"
@@ -772,7 +799,6 @@ export default function Home() {
                   </div>
                 )}
               </div>
-              </div>
             </div>
           </aside>
         )}
@@ -820,7 +846,7 @@ export default function Home() {
                 ファイルがありません
               </p>
               <p className="max-w-md text-sm text-zinc-500 dark:text-zinc-400">
-                .ai/config.json の targetDir が Git
+                .ai/config.json の targets が Git
                 リポジトリを指しているか確認してください。
               </p>
               <button

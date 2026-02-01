@@ -31,6 +31,13 @@ function getLanguageFromPath(filePath: string): string {
       return "shell";
     case "py":
       return "python";
+    case "go":
+      return "go";
+    case "rs":
+    case "rlib":
+      return "rust";
+    case "java":
+      return "java";
     case "html":
       return "html";
     case "xml":

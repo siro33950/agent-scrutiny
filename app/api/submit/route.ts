@@ -1,7 +1,8 @@
 import { randomUUID } from "crypto";
 import { spawnSync } from "child_process";
+import path from "path";
 import { NextResponse } from "next/server";
-import { loadConfig } from "@/lib/config";
+import { loadConfig, getTargetNames, getTargetDir } from "@/lib/config";
 import {
   readFeedbackUnsent,
   writeFeedbackForAgent,
@@ -9,13 +10,14 @@ import {
 } from "@/lib/feedback";
 
 /**
- * エージェントへの指示文。指定したファイルを読んで確認するように伝える。
+ * エージェントへの指示文。指定したファイル（絶対パス）を読んで確認するように伝える。
+ * 絶対パスにすることで、agent の cwd が target 配下でも他リポジトリからでも参照できる。
  */
-function buildInstruction(filename: string): string {
-  return `.ai/${filename} を読んで、記載の指摘内容（ファイル・行）を確認し、対応を実施してください。`;
+function buildInstruction(feedbackFileAbsolutePath: string): string {
+  return `${feedbackFileAbsolutePath} を読んで、記載の指摘内容（ファイル・行）を確認し、対応を実施してください。`;
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   const projectRoot = process.cwd();
   const data = readFeedbackUnsent(projectRoot);
   if (!data.items.length) {
@@ -27,15 +29,36 @@ export async function POST() {
     );
   }
 
+  const config = loadConfig(projectRoot);
+  const targetNames = getTargetNames(config);
+  let target: string;
+  try {
+    const body = await request.json().catch(() => ({}));
+    const requested = body?.target;
+    if (requested && typeof requested === "string" && config.targets[requested]) {
+      target = requested;
+    } else {
+      target = targetNames[0] ?? "default";
+    }
+  } catch {
+    target = targetNames[0] ?? "default";
+  }
+
+  const targetDir = getTargetDir(projectRoot, config, target);
+  const itemsWithAbsolutePath = data.items.map((item) => ({
+    ...item,
+    file_path: path.resolve(targetDir, item.file_path),
+  }));
+
   const uuid = randomUUID();
   const filename = `feedback-${uuid}.yaml`;
-  writeFeedbackForAgent(projectRoot, filename, data.items);
+  writeFeedbackForAgent(projectRoot, filename, itemsWithAbsolutePath);
 
-  const config = loadConfig(projectRoot);
+  const feedbackFileAbsolutePath = path.join(projectRoot, ".ai", filename);
   const sessionBase = config.tmuxSession ?? process.env.AGENT_SCRUTINY_TMUX_SESSION ?? "scrutiny";
-  const agentSession = `${sessionBase}-agent`;
+  const agentSession = `${sessionBase}-agent-${target}`;
 
-  const instruction = buildInstruction(filename);
+  const instruction = buildInstruction(feedbackFileAbsolutePath);
   // tmux send-keys で改行を送ると解釈が複雑なため、改行をスペースに置換して 1 行で送る。
   const oneLine = instruction.replace(/\s+/g, " ").trim();
 
