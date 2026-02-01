@@ -306,10 +306,13 @@ export default function Home() {
   }, [fetchFeedback]);
 
   useEffect(() => {
-    const toFetch = openTabs.filter(
-      (path) =>
-        !(path in fileContentCache) && !fetchingPathsRef.current.has(path)
-    );
+    const activePath = openTabs[activeTabIndex];
+    const toFetch = [
+      ...new Set([
+        activePath,
+        ...openTabs.filter((path) => !(path in fileContentCache)),
+      ].filter(Boolean)),
+    ].filter((path) => !fetchingPathsRef.current.has(path));
     if (toFetch.length === 0) return;
     const aborted = new Set<string>();
     toFetch.forEach((path) => fetchingPathsRef.current.add(path));
@@ -317,19 +320,25 @@ export default function Home() {
       fetch(`/api/file-content?path=${encodeURIComponent(path)}`)
         .then((res) => res.json())
         .then((data: { oldContent?: string; newContent?: string }) => {
-          if (aborted.has(path)) return;
           fetchingPathsRef.current.delete(path);
-          setFileContentCache((prev) => ({
-            ...prev,
-            [path]: {
-              oldContent: data.oldContent ?? "",
-              newContent: data.newContent ?? "",
-            },
-          }));
+          if (aborted.has(path)) return;
+          const oldVal = data.oldContent ?? "";
+          const newVal = data.newContent ?? "";
+          setFileContentCache((prev) => {
+            if (
+              prev[path]?.oldContent === oldVal &&
+              prev[path]?.newContent === newVal
+            )
+              return prev;
+            return {
+              ...prev,
+              [path]: { oldContent: oldVal, newContent: newVal },
+            };
+          });
         })
         .catch(() => {
-          if (aborted.has(path)) return;
           fetchingPathsRef.current.delete(path);
+          if (aborted.has(path)) return;
           setFileContentCache((prev) => ({
             ...prev,
             [path]: { oldContent: "", newContent: "" },
@@ -337,9 +346,12 @@ export default function Home() {
         });
     });
     return () => {
-      toFetch.forEach((p) => aborted.add(p));
+      toFetch.forEach((p) => {
+        aborted.add(p);
+        fetchingPathsRef.current.delete(p);
+      });
     };
-  }, [openTabs, fileContentCache]);
+  }, [openTabs, activeTabIndex, fileContentCache]);
 
   const onSelectLines = useCallback(
     (file_path: string, line_number: number, line_number_end?: number) => {
