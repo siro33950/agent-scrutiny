@@ -1,0 +1,212 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import path from "path";
+import yaml from "js-yaml";
+
+export interface FeedbackItem {
+  file_path: string;
+  line_number: number;
+  line_number_end?: number;
+  comment: string;
+}
+
+export interface FeedbackYaml {
+  items: FeedbackItem[];
+}
+
+const defaultFeedback: FeedbackYaml = { items: [] };
+
+/**
+ * AgentScrutiny プロジェクトルートの .ai/feedback.yaml のパスを返す。
+ */
+export function getFeedbackPath(projectRoot: string = process.cwd()): string {
+  return path.join(projectRoot, ".ai", "feedback.yaml");
+}
+
+/**
+ * 未送信指摘用 .ai/feedback-unsent.yaml のパスを返す。
+ */
+export function getFeedbackUnsentPath(projectRoot: string = process.cwd()): string {
+  return path.join(projectRoot, ".ai", "feedback-unsent.yaml");
+}
+
+function asFeedbackItem(x: unknown): FeedbackItem | null {
+  if (
+    !x ||
+    typeof x !== "object" ||
+    !("file_path" in x) ||
+    !("line_number" in x) ||
+    !("comment" in x)
+  ) {
+    return null;
+  }
+  const o = x as Record<string, unknown>;
+  const line_number = Number(o.line_number);
+  const line_number_end =
+    "line_number_end" in o && o.line_number_end != null
+      ? Number(o.line_number_end)
+      : undefined;
+  return {
+    file_path: String(o.file_path),
+    line_number,
+    ...(line_number_end !== undefined && !Number.isNaN(line_number_end)
+      ? { line_number_end }
+      : {}),
+    comment: String(o.comment),
+  };
+}
+
+/**
+ * .ai/feedback.yaml を読み、パースして返す。ファイルが無い場合は { items: [] }。
+ */
+export function readFeedback(projectRoot: string = process.cwd()): FeedbackYaml {
+  const filePath = getFeedbackPath(projectRoot);
+  if (!existsSync(filePath)) {
+    return { ...defaultFeedback };
+  }
+  try {
+    const raw = readFileSync(filePath, "utf-8");
+    const parsed = yaml.load(raw) as { items?: unknown[] } | null;
+    if (!parsed || !Array.isArray(parsed.items)) {
+      return { ...defaultFeedback };
+    }
+    const items = parsed.items.map(asFeedbackItem).filter(
+      (x): x is FeedbackItem => x !== null
+    );
+    return { items };
+  } catch {
+    return { ...defaultFeedback };
+  }
+}
+
+/**
+ * 既存の feedback に 1 件または複数件をマージし、重複（file_path + line_number + line_number_end）は上書きして書き戻す。
+ */
+export function writeFeedback(
+  projectRoot: string,
+  input: FeedbackItem | FeedbackItem[]
+): FeedbackYaml {
+  const existing = readFeedback(projectRoot);
+  const toAdd = Array.isArray(input) ? input : [input];
+  const key = (item: FeedbackItem) =>
+    `${item.file_path}:${item.line_number}:${item.line_number_end ?? item.line_number}`;
+  const byKey = new Map<string, FeedbackItem>();
+  for (const item of existing.items) {
+    byKey.set(key(item), item);
+  }
+  for (const item of toAdd) {
+    byKey.set(key(item), item);
+  }
+  const items = Array.from(byKey.values()).sort(
+    (a, b) =>
+      a.file_path.localeCompare(b.file_path) || a.line_number - b.line_number
+  );
+  const next: FeedbackYaml = { items };
+  const dir = path.dirname(getFeedbackPath(projectRoot));
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  writeFileSync(
+    getFeedbackPath(projectRoot),
+    yaml.dump(next, { lineWidth: -1 }),
+    "utf-8"
+  );
+  return next;
+}
+
+/**
+ * 未送信指摘用 YAML を読み、パースして返す。ファイルが無い場合は { items: [] }。
+ */
+export function readFeedbackUnsent(projectRoot: string = process.cwd()): FeedbackYaml {
+  const filePath = getFeedbackUnsentPath(projectRoot);
+  if (!existsSync(filePath)) {
+    return { ...defaultFeedback };
+  }
+  try {
+    const raw = readFileSync(filePath, "utf-8");
+    const parsed = yaml.load(raw) as { items?: unknown[] } | null;
+    if (!parsed || !Array.isArray(parsed.items)) {
+      return { ...defaultFeedback };
+    }
+    const items = parsed.items.map(asFeedbackItem).filter(
+      (x): x is FeedbackItem => x !== null
+    );
+    return { items };
+  } catch {
+    return { ...defaultFeedback };
+  }
+}
+
+/**
+ * 未送信指摘用 YAML に 1 件または複数件をマージし、重複は上書きして書き戻す。
+ */
+export function writeFeedbackUnsent(
+  projectRoot: string,
+  input: FeedbackItem | FeedbackItem[] | FeedbackYaml
+): FeedbackYaml {
+  const yamlInput = input && typeof input === "object" && "items" in input;
+  const yamlItems = yamlInput ? (input as FeedbackYaml).items : null;
+  if (yamlItems && yamlItems.length === 0) {
+    const next: FeedbackYaml = { items: [] };
+    const dir = path.dirname(getFeedbackUnsentPath(projectRoot));
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    writeFileSync(
+      getFeedbackUnsentPath(projectRoot),
+      yaml.dump(next, { lineWidth: -1 }),
+      "utf-8"
+    );
+    return next;
+  }
+  const existing = readFeedbackUnsent(projectRoot);
+  const toAdd =
+    yamlItems !== null
+      ? yamlItems
+      : Array.isArray(input)
+        ? input
+        : [input];
+  const key = (item: FeedbackItem) =>
+    `${item.file_path}:${item.line_number}:${item.line_number_end ?? item.line_number}`;
+  const byKey = new Map<string, FeedbackItem>();
+  for (const item of existing.items) {
+    byKey.set(key(item), item);
+  }
+  for (const item of toAdd) {
+    byKey.set(key(item), item);
+  }
+  const items = Array.from(byKey.values()).sort(
+    (a, b) =>
+      a.file_path.localeCompare(b.file_path) || a.line_number - b.line_number
+  );
+  const next: FeedbackYaml = { items };
+  const dir = path.dirname(getFeedbackUnsentPath(projectRoot));
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  writeFileSync(
+    getFeedbackUnsentPath(projectRoot),
+    yaml.dump(next, { lineWidth: -1 }),
+    "utf-8"
+  );
+  return next;
+}
+
+/**
+ * Agent に渡す用に、指定したファイル名で .ai/ 直下に YAML を書き出す。
+ */
+export function writeFeedbackForAgent(
+  projectRoot: string,
+  filename: string,
+  items: FeedbackItem[]
+): void {
+  const dir = path.join(projectRoot, ".ai");
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  const filePath = path.join(dir, filename);
+  writeFileSync(
+    filePath,
+    yaml.dump({ items }, { lineWidth: -1 }),
+    "utf-8"
+  );
+}
