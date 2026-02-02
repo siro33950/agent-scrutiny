@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { loadConfig, getTargetDir, getTargetNames } from "@/lib/config";
 import {
-  readFeedbackUnsent,
-  writeFeedbackUnsent,
+  readFeedback,
+  readFeedbackResolved,
+  writeFeedback,
+  moveItemsToResolved,
   type FeedbackItem,
 } from "@/lib/feedback";
 
@@ -14,8 +16,9 @@ export async function GET(request: NextRequest) {
   const target =
     targetParam && config.targets[targetParam] ? targetParam : targetNames[0] ?? "default";
   const targetDir = getTargetDir(projectRoot, config, target);
-  const data = readFeedbackUnsent(targetDir);
-  return NextResponse.json(data);
+  const items = readFeedback(targetDir);
+  const resolved = readFeedbackResolved(targetDir);
+  return NextResponse.json({ items: items.items, resolved: resolved.items });
 }
 
 export async function POST(request: NextRequest) {
@@ -93,6 +96,31 @@ export async function POST(request: NextRequest) {
     return null;
   };
 
+  if (body && typeof body === "object" && "resolve" in body && body.resolve === true) {
+    const single = asItem(body);
+    if (!single) {
+      return NextResponse.json(
+        { error: "resolve する指摘の file_path, line_number 等を指定してください" },
+        { status: 400 }
+      );
+    }
+    const current = readFeedback(targetDir);
+    const key = (i: FeedbackItem) =>
+      `${i.file_path}:${i.line_number}:${i.line_number_end ?? i.line_number}`;
+    const match = current.items.find((i) => key(i) === key(single));
+    if (!match) {
+      return NextResponse.json(
+        { error: "該当する指摘が見つかりません" },
+        { status: 404 }
+      );
+    }
+    moveItemsToResolved(targetDir, [match]);
+    return NextResponse.json({
+      items: readFeedback(targetDir).items,
+      resolved: readFeedbackResolved(targetDir).items,
+    });
+  }
+
   if (body && typeof body === "object" && "items" in body) {
     const items = (body as { items: unknown[] }).items;
     if (!Array.isArray(items)) {
@@ -108,20 +136,20 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    const result = writeFeedbackUnsent(targetDir, parsed);
-    return NextResponse.json(result);
+    const result = writeFeedback(targetDir, parsed);
+    return NextResponse.json({ items: result.items, resolved: readFeedbackResolved(targetDir).items });
   }
 
   const single = asItem(body);
   if (!single) {
     return NextResponse.json(
-        {
-          error:
+      {
+        error:
           "リクエストボディに file_path, comment と line_number または whole_file を含めてください",
-        },
+      },
       { status: 400 }
     );
   }
-  const result = writeFeedbackUnsent(targetDir, single);
-  return NextResponse.json(result);
+  const result = writeFeedback(targetDir, single);
+  return NextResponse.json({ items: result.items, resolved: readFeedbackResolved(targetDir).items });
 }

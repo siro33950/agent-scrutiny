@@ -240,6 +240,8 @@ export default function Home() {
     new Set(["directory", "comments"])
   );
   const [feedbackItems, setFeedbackItems] = useState<FeedbackItem[]>([]);
+  const [resolvedItems, setResolvedItems] = useState<FeedbackItem[]>([]);
+  const [feedbackFilter, setFeedbackFilter] = useState<"active" | "resolved">("active");
   const [selectedLine, setSelectedLine] = useState<{
     file_path: string;
     line_number: number;
@@ -253,6 +255,8 @@ export default function Home() {
   const [actionType, setActionType] = useState<"submit" | "approve">("submit");
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const actionMenuRef = useRef<HTMLDivElement>(null);
+  const [diffBase, setDiffBase] = useState<string>("HEAD");
+  const [branches, setBranches] = useState<string[]>([]);
 
   const fetchFiles = useCallback(async () => {
     const target = selectedTarget || defaultTarget;
@@ -261,7 +265,9 @@ export default function Home() {
     setError(null);
     setDismissBanner(null);
     try {
-      const res = await fetch(`/api/files?target=${encodeURIComponent(target)}`);
+      const res = await fetch(
+        `/api/files?target=${encodeURIComponent(target)}&base=${encodeURIComponent(diffBase)}`
+      );
       const data = await res.json();
       if (!res.ok) {
         setError(data.error ?? "ファイル一覧の取得に失敗しました");
@@ -285,7 +291,7 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [selectedTarget, defaultTarget]);
+  }, [selectedTarget, defaultTarget, diffBase]);
 
   /** 初回: targets を取得して selectedTarget をセット */
   useEffect(() => {
@@ -321,7 +327,27 @@ export default function Home() {
     fetchFiles();
   }, [selectedTarget]); // eslint-disable-line react-hooks/exhaustive-deps -- fetchFiles は selectedTarget 依存のため初回のみ fetchFiles で十分
 
-  /** 指摘一覧を API から取得して feedbackItems に反映する */
+  /** target が決まったらブランチ一覧を取得（base 選択用） */
+  useEffect(() => {
+    const target = selectedTarget || defaultTarget;
+    if (!target) return;
+    fetch(`/api/refs?target=${encodeURIComponent(target)}`)
+      .then((res) => (res.ok ? res.json() : { branches: [] }))
+      .then((data: { branches?: string[] }) => {
+        setBranches(Array.isArray(data.branches) ? data.branches : []);
+      })
+      .catch(() => setBranches([]));
+  }, [selectedTarget, defaultTarget]);
+
+  /** diffBase 変更時はファイル一覧を再取得し、開いているタブの内容キャッシュをクリアして再取得させる */
+  useEffect(() => {
+    if (!selectedTarget) return;
+    setFileContentCache({});
+    fetchingPathsRef.current = new Set();
+    fetchFiles();
+  }, [diffBase]); // eslint-disable-line react-hooks/exhaustive-deps -- fetchFiles は diffBase 依存のため diffBase 変更時のみ再取得
+
+  /** 指摘一覧を API から取得して feedbackItems / resolvedItems に反映する */
   const fetchFeedback = useCallback(async () => {
     if (!(selectedTarget || defaultTarget)) return;
     try {
@@ -331,8 +357,10 @@ export default function Home() {
       );
       const data = await res.json();
       setFeedbackItems(Array.isArray(data?.items) ? data.items : []);
+      setResolvedItems(Array.isArray(data?.resolved) ? data.resolved : []);
     } catch {
       setFeedbackItems([]);
+      setResolvedItems([]);
     }
   }, [selectedTarget, defaultTarget]);
 
@@ -391,9 +419,11 @@ export default function Home() {
     toFetch.forEach((path) => fetchingPathsRef.current.add(path));
     const target = selectedTarget || defaultTarget;
     toFetch.forEach((path) => {
-      const url = target
-        ? `/api/file-content?path=${encodeURIComponent(path)}&target=${encodeURIComponent(target)}`
-        : `/api/file-content?path=${encodeURIComponent(path)}`;
+      const params = new URLSearchParams();
+      params.set("path", path);
+      if (target) params.set("target", target);
+      params.set("base", diffBase);
+      const url = `/api/file-content?${params.toString()}`;
       fetch(url)
         .then((res) => res.json())
         .then((data: { oldContent?: string; newContent?: string }) => {
@@ -427,7 +457,7 @@ export default function Home() {
         aborted.add(p);
       }
     };
-  }, [openTabs, activeTabIndex, fileContentCache, selectedTarget, defaultTarget]);
+  }, [openTabs, activeTabIndex, fileContentCache, selectedTarget, defaultTarget, diffBase]);
 
   const onSelectLines = useCallback(
     (file_path: string, line_number: number, line_number_end?: number) => {
@@ -492,6 +522,37 @@ export default function Home() {
     }
   }, [selectedLine, commentDraft, fetchFeedback, selectedTarget, defaultTarget]);
 
+  const handleResolve = useCallback(
+    async (item: FeedbackItem) => {
+      setSubmitting(true);
+      try {
+        const body = {
+          resolve: true,
+          target: selectedTarget || defaultTarget,
+          file_path: item.file_path,
+          line_number: item.line_number,
+          ...(item.line_number_end !== undefined ? { line_number_end: item.line_number_end } : {}),
+          ...(item.whole_file ? { whole_file: true } : {}),
+        };
+        const res = await fetch("/api/feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error ?? "Resolve に失敗しました");
+        }
+        await fetchFeedback();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "不明なエラー");
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [fetchFeedback, selectedTarget, defaultTarget]
+  );
+
   const highlightLineIds: string[] = currentPath
     ? [
         ...feedbackItems
@@ -520,14 +581,6 @@ export default function Home() {
     <div className="flex h-screen flex-col overflow-hidden bg-zinc-100 dark:bg-zinc-950">
       <header className="sticky top-0 z-40 border-b border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
         <div className="mx-auto flex max-w-full items-center justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-              AgentScrutiny
-            </h1>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Diff review for AI agents
-            </p>
-          </div>
           <div className="flex items-center gap-2">
             {targets.length > 0 && (
               <select
@@ -543,7 +596,21 @@ export default function Home() {
                 ))}
               </select>
             )}
-            <div className="relative flex" ref={actionMenuRef}>
+            <select
+              value={diffBase}
+              onChange={(e) => setDiffBase(e.target.value)}
+              className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200"
+              aria-label="base を選択"
+            >
+              <option value="HEAD">HEAD</option>
+              {branches.map((b) => (
+                <option key={b} value={b}>
+                  {b}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="relative flex" ref={actionMenuRef}>
               <button
                 type="button"
                 onClick={async () => {
@@ -636,7 +703,7 @@ export default function Home() {
                         Submit
                       </div>
                       <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-                        指摘をエージェントに送信し、対応を依頼します。
+                        Feedbackをエージェントに送信し、対応を依頼します。
                       </div>
                     </div>
                   </button>
@@ -666,7 +733,6 @@ export default function Home() {
                 </div>
               )}
             </div>
-          </div>
         </div>
       </header>
 
@@ -734,7 +800,7 @@ export default function Home() {
                         }`}
                         aria-pressed={treeViewMode === "changed"}
                       >
-                        変更ファイル ({changedFiles.length})
+                        Changed ({changedFiles.length})
                       </button>
                       <button
                         type="button"
@@ -746,7 +812,7 @@ export default function Home() {
                         }`}
                         aria-pressed={treeViewMode === "full"}
                       >
-                        全体
+                        All
                       </button>
                     </div>
                     <div className="flex shrink-0 items-center gap-0.5 border-t border-zinc-200 px-2 py-1.5 dark:border-zinc-800">
@@ -860,64 +926,144 @@ export default function Home() {
                   <span className="shrink-0 w-4 text-center text-[10px] text-zinc-500 dark:text-zinc-400" aria-hidden>
                     {openAccordion.has("comments") ? "v" : ">"}
                   </span>
-                  指摘 ({feedbackItems.length})
+                  Feedback ({feedbackItems.length + resolvedItems.length})
                 </button>
                 {openAccordion.has("comments") && (
-                  <div className="max-h-48 overflow-y-auto border-t border-zinc-200 py-1 dark:border-zinc-800">
-                    {feedbackItems.length === 0 ? (
-                      <p className="px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">指摘はありません</p>
-                    ) : (
-                      <ul>
-                        {feedbackItems.map((item, idx) => (
-                          <li key={idx}>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const path = item.file_path;
-                                const tabIdx = openTabs.indexOf(path);
-                                if (tabIdx >= 0) {
-                                  setActiveTabIndex(tabIdx);
-                                  setSelectedLine({
-                                    file_path: path,
-                                    line_number: item.line_number,
-                                    ...(item.line_number_end !== undefined
-                                      ? { line_number_end: item.line_number_end }
-                                      : {}),
+                  <div className="border-t border-zinc-200 dark:border-zinc-800">
+                    <div className="flex shrink-0 border-b border-zinc-200 dark:border-zinc-800">
+                      <button
+                        type="button"
+                        onClick={() => setFeedbackFilter("active")}
+                        className={`flex-1 px-2 py-1.5 text-center text-xs font-medium ${
+                          feedbackFilter === "active"
+                            ? "border-b-2 border-emerald-600 text-zinc-900 dark:border-emerald-500 dark:text-zinc-100"
+                            : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+                        }`}
+                        aria-pressed={feedbackFilter === "active"}
+                      >
+                        有効 ({feedbackItems.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFeedbackFilter("resolved")}
+                        className={`flex-1 px-2 py-1.5 text-center text-xs font-medium ${
+                          feedbackFilter === "resolved"
+                            ? "border-b-2 border-emerald-600 text-zinc-900 dark:border-emerald-500 dark:text-zinc-100"
+                            : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+                        }`}
+                        aria-pressed={feedbackFilter === "resolved"}
+                      >
+                        完了 ({resolvedItems.length})
+                      </button>
+                    </div>
+                    <div className="max-h-40 overflow-y-auto py-1">
+                      {feedbackFilter === "active" ? (
+                        feedbackItems.length === 0 ? (
+                          <p className="px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">有効な指摘はありません</p>
+                        ) : (
+                          <ul>
+                            {feedbackItems.map((item, idx) => (
+                              <li key={idx} className="group flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const path = item.file_path;
+                                    const tabIdx = openTabs.indexOf(path);
+                                    if (tabIdx >= 0) {
+                                      setActiveTabIndex(tabIdx);
+                                      setSelectedLine({
+                                        file_path: path,
+                                        line_number: item.line_number,
+                                        ...(item.line_number_end !== undefined
+                                          ? { line_number_end: item.line_number_end }
+                                          : {}),
+                                      });
+                                      setCommentDraft(item.comment ?? "");
+                                      return;
+                                    }
+                                    setOpenTabs((prev) => {
+                                      const newIndex = prev.length;
+                                      setActiveTabIndex(newIndex);
+                                      return [...prev, path];
+                                    });
+                                    setSelectedLine({
+                                      file_path: path,
+                                      line_number: item.line_number,
+                                      ...(item.line_number_end !== undefined
+                                        ? { line_number_end: item.line_number_end }
+                                        : {}),
+                                    });
+                                    setCommentDraft(item.comment ?? "");
+                                  }}
+                                  className="min-w-0 flex-1 truncate px-3 py-1.5 text-left text-xs text-zinc-600 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                                  title={`${item.file_path}:${item.line_number === 0 ? "whole file" : item.line_number_end != null ? `${item.line_number}–${item.line_number_end}` : item.line_number} — ${(item.comment ?? "").slice(0, 80)}`}
+                                >
+                                  <span className="font-medium">{item.file_path}</span>
+                                  <span className="text-zinc-400 dark:text-zinc-500">
+                                    :{item.line_number === 0 ? "whole file" : item.line_number_end != null ? `${item.line_number}–${item.line_number_end}` : item.line_number}
+                                  </span>
+                                  {" — "}
+                                  <span className="truncate">
+                                    {(item.comment ?? "").slice(0, 30)}
+                                    {(item.comment ?? "").length > 30 ? "…" : ""}
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleResolve(item);
+                                  }}
+                                  disabled={submitting}
+                                  className="shrink-0 rounded p-1 text-zinc-400 hover:bg-zinc-200 hover:text-emerald-600 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-emerald-400"
+                                  title="Resolve"
+                                  aria-label="Resolve"
+                                >
+                                  <span className="text-[10px] font-medium">✓</span>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )
+                      ) : resolvedItems.length === 0 ? (
+                        <p className="px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">完了済みはありません</p>
+                      ) : (
+                        <ul>
+                          {resolvedItems.map((item, idx) => (
+                            <li key={idx}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const path = item.file_path;
+                                  const tabIdx = openTabs.indexOf(path);
+                                  if (tabIdx >= 0) {
+                                    setActiveTabIndex(tabIdx);
+                                    return;
+                                  }
+                                  setOpenTabs((prev) => {
+                                    const newIndex = prev.length;
+                                    setActiveTabIndex(newIndex);
+                                    return [...prev, path];
                                   });
-                                  setCommentDraft(item.comment ?? "");
-                                  return;
-                                }
-                                setOpenTabs((prev) => {
-                                  const newIndex = prev.length;
-                                  setActiveTabIndex(newIndex);
-                                  return [...prev, path];
-                                });
-                                setSelectedLine({
-                                  file_path: path,
-                                  line_number: item.line_number,
-                                  ...(item.line_number_end !== undefined
-                                    ? { line_number_end: item.line_number_end }
-                                    : {}),
-                                });
-                                setCommentDraft(item.comment ?? "");
-                              }}
-                              className="w-full truncate px-3 py-1.5 text-left text-xs text-zinc-600 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                              title={`${item.file_path}:${item.line_number === 0 ? "ファイル全体" : item.line_number_end != null ? `${item.line_number}–${item.line_number_end}` : item.line_number} — ${(item.comment ?? "").slice(0, 80)}`}
-                            >
-                              <span className="font-medium">{item.file_path}</span>
-                              <span className="text-zinc-400 dark:text-zinc-500">
-                                :{item.line_number === 0 ? "ファイル全体" : item.line_number_end != null ? `${item.line_number}–${item.line_number_end}` : item.line_number}
-                              </span>
-                              {" — "}
-                              <span className="truncate">
-                                {(item.comment ?? "").slice(0, 30)}
-                                {(item.comment ?? "").length > 30 ? "…" : ""}
-                              </span>
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
+                                }}
+                                className="w-full truncate px-3 py-1.5 text-left text-xs text-zinc-400 hover:bg-zinc-50 dark:text-zinc-500 dark:hover:bg-zinc-800"
+                                title={`${item.file_path}:${item.line_number === 0 ? "whole file" : item.line_number_end != null ? `${item.line_number}–${item.line_number_end}` : item.line_number} — ${(item.comment ?? "").slice(0, 80)}`}
+                              >
+                                <span className="font-medium">{item.file_path}</span>
+                                <span className="text-zinc-500 dark:text-zinc-600">
+                                  :{item.line_number === 0 ? "whole file" : item.line_number_end != null ? `${item.line_number}–${item.line_number_end}` : item.line_number}
+                                </span>
+                                {" — "}
+                                <span className="truncate line-through">
+                                  {(item.comment ?? "").slice(0, 30)}
+                                  {(item.comment ?? "").length > 30 ? "…" : ""}
+                                </span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -1058,8 +1204,8 @@ export default function Home() {
                     setCommentDraft(existing?.comment ?? "");
                   }}
                   className="shrink-0 rounded p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                  title="ファイル全体に指摘"
-                  aria-label="ファイル全体に指摘"
+                  title="whole fileにFeedback"
+                  aria-label="whole fileにFeedback"
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden>
                     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
@@ -1111,7 +1257,7 @@ export default function Home() {
               className="mb-3 text-base font-medium text-zinc-700 dark:text-zinc-300"
             >
               {selectedLine.line_number === 0
-                ? `${selectedLine.file_path} にコメント（ファイル全体）`
+                ? `${selectedLine.file_path} にコメント（whole file）`
                 : `${selectedLine.file_path} 行 L${selectedLine.line_number}${selectedLine.line_number_end != null ? `–${selectedLine.line_number_end}` : ""} にコメント`}
             </h2>
             <textarea
@@ -1123,7 +1269,7 @@ export default function Home() {
                   if (!submitting) handleSubmitComment();
                 }
               }}
-              placeholder="指摘や修正依頼を入力...（Cmd+Enter で保存）"
+              placeholder="Feedbackや修正依頼を入力...（Cmd+Enter で保存）"
               className="mb-4 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
               rows={4}
               autoFocus

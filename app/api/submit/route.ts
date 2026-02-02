@@ -4,9 +4,9 @@ import path from "path";
 import { NextResponse } from "next/server";
 import { loadConfig, getTargetNames, getTargetDir } from "@/lib/config";
 import {
-  readFeedbackUnsent,
+  readFeedback,
   writeFeedbackForAgent,
-  writeFeedbackUnsent,
+  moveItemsToResolved,
 } from "@/lib/feedback";
 
 /**
@@ -22,7 +22,7 @@ function sanitizeSessionName(name: string): string {
  * エージェントへの指示文。指定したファイル（agent の cwd = targetDir に対する相対パス）を読んで確認するように伝える。
  */
 function buildInstruction(feedbackFileRelativePath: string): string {
-  return `${feedbackFileRelativePath} を読んで、記載の指摘内容（ファイル・行）を確認し、対応を実施してください。`;
+  return `${feedbackFileRelativePath} を読んでフィードバック（ファイル・行）を確認し、指摘に対応してください。`;
 }
 
 export async function POST(request: Request) {
@@ -43,11 +43,11 @@ export async function POST(request: Request) {
   }
 
   const targetDir = getTargetDir(projectRoot, config, target);
-  const data = readFeedbackUnsent(targetDir);
+  const data = readFeedback(targetDir);
   if (!data.items.length) {
     return NextResponse.json(
       {
-        error: "送信する指摘がありません。",
+        error: "No feedback to send.",
       },
       { status: 400 }
     );
@@ -121,7 +121,7 @@ export async function POST(request: Request) {
     );
   }
 
-  writeFeedbackUnsent(targetDir, { items: [] });
+  moveItemsToResolved(targetDir, data.items);
 
   return NextResponse.json({
     ok: true,

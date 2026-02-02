@@ -3,17 +3,19 @@ import path from "path";
 import yaml from "js-yaml";
 
 /**
- * 1 件の指摘。行範囲またはファイル全体。
- * whole_file が true のときはファイル全体への指摘（line_number は 0、line_number_end は省略）。
- * 後方互換のため line_number === 0 かつ whole_file 未指定もファイル全体として扱う。
+ * 1 件のフィードバック。行範囲またはファイル全体。
+ * whole_file が true のときはファイル全体へのフィードバック（line_number 0、line_number_end 省略）。
+ * 後方互換: line_number === 0 かつ whole_file なしもファイル全体として扱う。
  */
 export interface FeedbackItem {
   file_path: string;
   line_number: number;
   line_number_end?: number;
-  /** true のときファイル全体への指摘。YAML 出力で意図が分かるように明示する。 */
+  /** true のときファイル全体へのフィードバック。YAML 出力で明示される。 */
   whole_file?: boolean;
   comment: string;
+  /** 完了に移した日時（ISO8601）。feedback-resolved.yaml にのみ保持。 */
+  resolved_at?: string;
 }
 
 export interface FeedbackYaml {
@@ -30,11 +32,10 @@ export function getFeedbackPath(workingDir: string = process.cwd()): string {
 }
 
 /**
- * 未送信指摘用 .scrutiny/feedback-unsent.yaml のパスを返す。
- * @param workingDir 作業ディレクトリ（target のディレクトリ）
+ * .scrutiny/feedback-resolved.yaml（完了済みフィードバック）のパスを返す。
  */
-export function getFeedbackUnsentPath(workingDir: string = process.cwd()): string {
-  return path.join(workingDir, ".scrutiny", "feedback-unsent.yaml");
+export function getFeedbackResolvedPath(workingDir: string = process.cwd()): string {
+  return path.join(workingDir, ".scrutiny", "feedback-resolved.yaml");
 }
 
 function asFeedbackItem(x: unknown): FeedbackItem | null {
@@ -68,22 +69,38 @@ function asFeedbackItem(x: unknown): FeedbackItem | null {
     Number.isFinite(line_number_end) &&
     Number.isInteger(line_number_end) &&
     line_number_end >= line_number;
+  const resolved_at =
+    "resolved_at" in o && typeof o.resolved_at === "string"
+      ? o.resolved_at
+      : undefined;
   return {
     file_path: String(o.file_path),
     line_number,
     ...(line_number_endValid ? { line_number_end } : {}),
     ...(isWholeFile || line_number === 0 ? { whole_file: true as const } : {}),
     comment: String(o.comment),
+    ...(resolved_at ? { resolved_at } : {}),
   };
 }
 
+const feedbackUnsentPath = (wd: string) =>
+  path.join(wd, ".scrutiny", "feedback-unsent.yaml");
+
 /**
  * 作業ディレクトリの .scrutiny/feedback.yaml を読み、パースして返す。ファイルが無い場合は { items: [] }。
+ * 移行: feedback.yaml が無く feedback-unsent.yaml がある場合、それを feedback.yaml にコピーして読み込む。
  */
 export function readFeedback(workingDir: string = process.cwd()): FeedbackYaml {
   const filePath = getFeedbackPath(workingDir);
+  const unsentPath = feedbackUnsentPath(workingDir);
   if (!existsSync(filePath)) {
-    return { ...defaultFeedback };
+    if (existsSync(unsentPath)) {
+      const dir = path.dirname(filePath);
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      writeFileSync(filePath, readFileSync(unsentPath, "utf-8"), "utf-8");
+    } else {
+      return { ...defaultFeedback };
+    }
   }
   try {
     const raw = readFileSync(filePath, "utf-8");
@@ -136,10 +153,10 @@ export function writeFeedback(
 }
 
 /**
- * 作業ディレクトリの未送信指摘用 YAML を読み、パースして返す。ファイルが無い場合は { items: [] }。
+ * 作業ディレクトリの .scrutiny/feedback-resolved.yaml を読み、パースして返す。存在しない場合は { items: [] }。
  */
-export function readFeedbackUnsent(workingDir: string = process.cwd()): FeedbackYaml {
-  const filePath = getFeedbackUnsentPath(workingDir);
+export function readFeedbackResolved(workingDir: string = process.cwd()): FeedbackYaml {
+  const filePath = getFeedbackResolvedPath(workingDir);
   if (!existsSync(filePath)) {
     return { ...defaultFeedback };
   }
@@ -159,58 +176,55 @@ export function readFeedbackUnsent(workingDir: string = process.cwd()): Feedback
 }
 
 /**
- * 未送信指摘用 YAML に 1 件または複数件をマージし、重複は上書きして書き戻す。
+ * 完了済みフィードバック YAML に 1 件以上を追記する。
  */
-export function writeFeedbackUnsent(
+export function appendFeedbackResolved(
   workingDir: string,
-  input: FeedbackItem | FeedbackItem[] | FeedbackYaml
-): FeedbackYaml {
-  const yamlInput = input && typeof input === "object" && "items" in input;
-  const yamlItems = yamlInput ? (input as FeedbackYaml).items : null;
-  if (yamlItems && yamlItems.length === 0) {
-    const next: FeedbackYaml = { items: [] };
-    const dir = path.dirname(getFeedbackUnsentPath(workingDir));
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-    writeFileSync(
-      getFeedbackUnsentPath(workingDir),
-      yaml.dump(next, { lineWidth: -1 }),
-      "utf-8"
-    );
-    return next;
-  }
-  const existing = readFeedbackUnsent(workingDir);
-  const toAdd: FeedbackItem[] =
-    yamlItems !== null
-      ? yamlItems
-      : Array.isArray(input)
-        ? input
-        : [input as FeedbackItem];
-  const key = (item: FeedbackItem) =>
-    `${item.file_path}:${item.line_number}:${item.line_number_end ?? item.line_number}`;
-  const byKey = new Map<string, FeedbackItem>();
-  for (const item of existing.items) {
-    byKey.set(key(item), item);
-  }
-  for (const item of toAdd) {
-    byKey.set(key(item), item);
-  }
-  const items = Array.from(byKey.values()).sort(
+  input: FeedbackItem | FeedbackItem[]
+): void {
+  const existing = readFeedbackResolved(workingDir);
+  const toAdd = Array.isArray(input) ? input : [input];
+  const items = [...existing.items, ...toAdd].sort(
     (a, b) =>
       a.file_path.localeCompare(b.file_path) || a.line_number - b.line_number
   );
-  const next: FeedbackYaml = { items };
-  const dir = path.dirname(getFeedbackUnsentPath(workingDir));
+  const dir = path.dirname(getFeedbackResolvedPath(workingDir));
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
   writeFileSync(
-    getFeedbackUnsentPath(workingDir),
-    yaml.dump(next, { lineWidth: -1 }),
+    getFeedbackResolvedPath(workingDir),
+    yaml.dump({ items }, { lineWidth: -1 }),
     "utf-8"
   );
-  return next;
+}
+
+const itemKey = (item: FeedbackItem) =>
+  `${item.file_path}:${item.line_number}:${item.line_number_end ?? item.line_number}`;
+
+/**
+ * 指定した指摘を feedback.yaml から削除し、feedback-resolved.yaml に追記する。
+ * items に resolved_at が無い場合は付与する。
+ */
+export function moveItemsToResolved(
+  workingDir: string,
+  items: FeedbackItem[]
+): void {
+  if (items.length === 0) return;
+  const toResolve = items.map((item) =>
+    item.resolved_at ? item : { ...item, resolved_at: new Date().toISOString() }
+  );
+  appendFeedbackResolved(workingDir, toResolve);
+  const existing = readFeedback(workingDir);
+  const removeKeys = new Set(items.map(itemKey));
+  const remaining = existing.items.filter((i) => !removeKeys.has(itemKey(i)));
+  const dir = path.dirname(getFeedbackPath(workingDir));
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    getFeedbackPath(workingDir),
+    yaml.dump({ items: remaining }, { lineWidth: -1 }),
+    "utf-8"
+  );
 }
 
 /**

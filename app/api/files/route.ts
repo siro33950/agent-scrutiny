@@ -3,6 +3,7 @@ import { spawnSync } from "child_process";
 import path from "path";
 import { NextResponse } from "next/server";
 import { loadConfig, getTargetDir } from "@/lib/config";
+import { validateBaseRef } from "@/lib/git-ref";
 
 const SKIP_DIRS = new Set([
   ".git",
@@ -46,6 +47,14 @@ export async function GET(request: Request) {
   const config = loadConfig(projectRoot);
   const { searchParams } = new URL(request.url);
   const target = searchParams.get("target") ?? undefined;
+  const baseRaw = searchParams.get("base") ?? "HEAD";
+  const base = validateBaseRef(baseRaw);
+  if (!base) {
+    return NextResponse.json(
+      { error: "不正な base です" },
+      { status: 400 }
+    );
+  }
   const targetDir = getTargetDir(projectRoot, config, target);
 
   let files = listAllFiles(targetDir);
@@ -72,7 +81,7 @@ export async function GET(request: Request) {
   }
   // check-ignore が非ゼロ（例: 非 git リポジトリ）の場合はフィルタせずそのまま返す
 
-  const diffResult = spawnSync("git", ["diff", "HEAD", "--name-only"], {
+  const diffResult = spawnSync("git", ["diff", base, "--name-only"], {
     cwd: targetDir,
     encoding: "utf-8",
     maxBuffer: 10 * 1024 * 1024,
