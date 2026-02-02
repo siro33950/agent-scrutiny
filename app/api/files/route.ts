@@ -2,7 +2,7 @@ import { readdirSync } from "fs";
 import { spawnSync } from "child_process";
 import path from "path";
 import { NextResponse } from "next/server";
-import { loadConfig } from "@/lib/config";
+import { loadConfig, getTargetDir } from "@/lib/config";
 
 const SKIP_DIRS = new Set([
   ".git",
@@ -41,10 +41,12 @@ function listAllFiles(dir: string, base = ""): string[] {
   return out.sort();
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const projectRoot = process.cwd();
   const config = loadConfig(projectRoot);
-  const targetDir = path.resolve(projectRoot, config.targetDir || projectRoot);
+  const { searchParams } = new URL(request.url);
+  const target = searchParams.get("target") ?? undefined;
+  const targetDir = getTargetDir(projectRoot, config, target);
 
   let files = listAllFiles(targetDir);
 
