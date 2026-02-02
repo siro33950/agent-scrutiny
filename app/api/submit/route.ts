@@ -12,7 +12,7 @@ import {
  * エージェントへの指示文。指定したファイルを読んで確認するように伝える。
  */
 function buildInstruction(filename: string): string {
-  return `.ai/${filename} を読んで、記載の指摘内容（ファイル・行）を確認してください。`;
+  return `.ai/${filename} を読んで、記載の指摘内容（ファイル・行）を確認し、対応を実施してください。`;
 }
 
 export async function POST() {

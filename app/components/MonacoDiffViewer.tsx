@@ -189,12 +189,12 @@ export function MonacoDiffViewer({
       };
 
       const onWrapperMouseDown = (e: MouseEvent) => {
+        const target = e.target as Node;
+        if (!wrapper.contains(target)) return;
+        const isPlusGlyph = (target as HTMLElement).closest?.(".scrutiny-comment-plus") != null;
+        if (!isPlusGlyph) return;
         const hit = getTargetAt(e.clientX, e.clientY);
-        const type = hit?.target?.type;
-        const isGutter =
-          type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN ||
-          type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS;
-        if (!hit?.target?.position || !isGutter) return;
+        if (!hit?.target?.position) return;
         const lineNumber = hit.target.position.lineNumber;
         dragStartLineRef.current = lineNumber;
         dragEndLineRef.current = lineNumber;
