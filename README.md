@@ -1,12 +1,12 @@
 # AgentScrutiny
 
-CLI ベースの AI コーディングエージェント（Aider, Claude Code 等）と人間との共同作業を最適化する**ローカル専用レビューツール**です。AI が生成したコードの差分をブラウザ上で GitHub PR 風に確認し、行ごとのフィードバックを `.ai/feedback.yaml` に保存し、Tmux 経由でターミナルの AI に修正指示を送る「密結合ループ」を実現します。
+CLI ベースの AI コーディングエージェント（Aider, Claude Code 等）と人間との共同作業を最適化する**ローカル専用レビューツール**です。AI が生成したコードの差分をブラウザ上で GitHub PR 風に確認し、行ごとのフィードバックを `.scrutiny/feedback.yaml` に保存し、Tmux 経由でターミナルの AI に修正指示を送る「密結合ループ」を実現します。
 
 ## Tight-Coupling Workflow
 
 1. **CLI:** 開発者がターミナルで AI に指示を出す。
 2. **Web UI:** AI が書き換えたコードの差分をブラウザで精査（Scrutiny）する。
-3. **Feedback:** 差分に対する指摘をブラウザ上で入力し、`.ai/feedback.yaml` に保存する。
+3. **Feedback:** 差分に対する指摘をブラウザ上で入力し、`.scrutiny/feedback.yaml` に保存する。
 4. **Action:** ブラウザの「Submit to Agent」ボタンで、Tmux を介してターミナルの AI に修正命令を送信する。
 
 ## セットアップ
@@ -16,15 +16,15 @@ npm install
 ./scripts/bootstrap.sh
 ```
 
-`bootstrap.sh` は `.ai` ディレクトリを作成し、`.ai/config.json.example` を `.ai/config.json` にコピー（未存在時）、`scripts/*.sh` に実行権限を付与します。**実際の設定ファイルは .gitignore されているため、初回は bootstrap の実行か手動で `.ai/config.json` を用意してください。**
+`bootstrap.sh` は `.scrutiny` ディレクトリを作成し、`config.json.example` を `config.json` にコピー（未存在時）、`scripts/*.sh` に実行権限を付与します。**実際の設定ファイルは .gitignore されているため、初回は bootstrap の実行か手動で `config.json` を用意してください。**
 
 ```bash
 # 手動で行う場合
-cp .ai/config.json.example .ai/config.json
-# 必要に応じて .ai/config.json を編集
+cp config.json.example config.json
+# 必要に応じて config.json を編集
 ```
 
-`.ai/config.json` で以下を設定します（未設定時は環境変数または `process.cwd()` にフォールバック）。
+`config.json` で以下を設定します（未設定時は環境変数または `process.cwd()` にフォールバック）。
 
 | キー           | 説明                                                                                                                                    |
 | -------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
@@ -50,7 +50,7 @@ cp .ai/config.json.example .ai/config.json
 ## 使い方
 
 1. **差分確認:** `npm run dev` で起動し、ブラウザで [http://localhost:3000](http://localhost:3000) を開く。`targetDir` の `git diff HEAD` が Side-by-Side で表示される。
-2. **コメント追加:** 行番号をクリックし、コメントを入力して「保存」する。`.ai/feedback.yaml` に追記される。
+2. **コメント追加:** 行番号をクリックし、コメントを入力して「保存」する。`.scrutiny/feedback.yaml` に追記される。
 3. **Submit to Agent:** 「Submit to Agent」を押すと、feedback の内容が要約された指示文が、tmux の **agent セッション**（`scrutiny-agent` 等）に送られ、Enter が押される。そのセッションで Aider 等の AI エージェントを起動しておけば、指示がそのまま入力される。
 
 ## 起動（tmux で 2 セッション）
@@ -67,12 +67,12 @@ tmux attach-session -t scrutiny-dev   # dev サーバーのログを見る
 tmux attach-session -t scrutiny-agent # エージェントに指示を送る（Submit の送信先）
 ```
 
-初回は `./scripts/bootstrap.sh` で `.ai/config.json` と scripts の実行権限を用意しておいてください。
+初回は `./scripts/bootstrap.sh` で `config.json` と scripts の実行権限を用意しておいてください。
 
 ## 注意事項
 
 - **ローカル専用:** 認証は想定していません。ネットワークに公開する場合は別途対策が必要です。
-- **.ai の位置:** 差分は `targetDir` の Git リポジトリで取得し、`.ai/feedback.yaml` は **AgentScrutiny プロジェクトルート直下** に固定で保存されます。対象リポと AgentScrutiny が同じワークスペースにある場合は、`targetDir` に対象リポのパスを指定し、feedback は常に AgentScrutiny の `.ai/` に書かれることを前提に運用してください。
+- **.scrutiny の位置:** 差分は各 target（作業ディレクトリ）の Git リポジトリで取得し、`.scrutiny/feedback.yaml` および `feedback-unsent.yaml` は **各 target の作業ディレクトリ直下** に作成されます。target を切り替えると、その target 用の指摘だけが表示・編集されます。（従来の `.ai/` は廃止されています。）
 
 ## 技術スタック
 

@@ -250,6 +250,9 @@ export default function Home() {
   const [submitStatus, setSubmitStatus] = useState<"idle" | "success" | "error">("idle");
   const [submitMessage, setSubmitMessage] = useState("");
   const [dismissBanner, setDismissBanner] = useState<string | null>(null);
+  const [actionType, setActionType] = useState<"submit" | "approve">("submit");
+  const [actionMenuOpen, setActionMenuOpen] = useState(false);
+  const actionMenuRef = useRef<HTMLDivElement>(null);
 
   const fetchFiles = useCallback(async () => {
     const target = selectedTarget || defaultTarget;
@@ -298,7 +301,8 @@ export default function Home() {
         setDefaultTarget(def);
         setSelectedTarget((prev) => (prev === "" ? def : prev));
       })
-      .catch(() => {
+      .catch((e) => {
+        console.error(e);
         setTargets([]);
         setDefaultTarget("default");
         setSelectedTarget((prev) => (prev === "" ? "default" : prev));
@@ -313,19 +317,24 @@ export default function Home() {
     setOpenTabs([]);
     setActiveTabIndex(0);
     setFileContentCache({});
+    fetchingPathsRef.current = new Set();
     fetchFiles();
   }, [selectedTarget]); // eslint-disable-line react-hooks/exhaustive-deps -- fetchFiles は selectedTarget 依存のため初回のみ fetchFiles で十分
 
   /** 指摘一覧を API から取得して feedbackItems に反映する */
   const fetchFeedback = useCallback(async () => {
+    if (!(selectedTarget || defaultTarget)) return;
     try {
-      const res = await fetch("/api/feedback");
+      const target = selectedTarget || defaultTarget;
+      const res = await fetch(
+        `/api/feedback?target=${encodeURIComponent(target)}`
+      );
       const data = await res.json();
       setFeedbackItems(Array.isArray(data?.items) ? data.items : []);
     } catch {
       setFeedbackItems([]);
     }
-  }, []);
+  }, [selectedTarget, defaultTarget]);
 
   const currentPath = openTabs[activeTabIndex] ?? null;
   const fileTree = useMemo(() => buildTree(files), [files]);
@@ -357,6 +366,17 @@ export default function Home() {
   useEffect(() => {
     fetchFeedback();
   }, [fetchFeedback]);
+
+  useEffect(() => {
+    if (!actionMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (actionMenuRef.current && !actionMenuRef.current.contains(e.target as Node)) {
+        setActionMenuOpen(false);
+      }
+    };
+    document.addEventListener("click", handleClickOutside);
+    return () => document.removeEventListener("click", handleClickOutside);
+  }, [actionMenuOpen]);
 
   useEffect(() => {
     const activePath = openTabs[activeTabIndex];
@@ -446,6 +466,7 @@ export default function Home() {
         file_path: selectedLine.file_path,
         line_number: selectedLine.line_number,
         comment: commentDraft.trim(),
+        target: selectedTarget || defaultTarget,
       };
       if (selectedLine.line_number === 0) {
         body.whole_file = true;
@@ -469,7 +490,7 @@ export default function Home() {
     } finally {
       setSubmitting(false);
     }
-  }, [selectedLine, commentDraft, fetchFeedback]);
+  }, [selectedLine, commentDraft, fetchFeedback, selectedTarget, defaultTarget]);
 
   const highlightLineIds: string[] = currentPath
     ? [
@@ -522,37 +543,129 @@ export default function Home() {
                 ))}
               </select>
             )}
-            <button
-              type="button"
-              onClick={async () => {
-                setSubmitStatus("idle");
-                setSubmitMessage("");
-                setDismissBanner(null);
-                try {
+            <div className="relative flex" ref={actionMenuRef}>
+              <button
+                type="button"
+                onClick={async () => {
+                  setSubmitStatus("idle");
+                  setSubmitMessage("");
+                  setDismissBanner(null);
                   const target = selectedTarget || defaultTarget;
-                  const res = await fetch("/api/submit", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(target ? { target } : {}),
-                  });
-                  const data = await res.json();
-                  if (res.ok) {
-                    setSubmitStatus("success");
-                    setSubmitMessage(data.message ?? "送信しました");
-                    await fetchFeedback();
-                  } else {
+                  try {
+                    if (actionType === "submit") {
+                      const res = await fetch("/api/submit", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(target ? { target } : {}),
+                      });
+                      const data = await res.json();
+                      if (res.ok) {
+                        setSubmitStatus("success");
+                        setSubmitMessage(data.message ?? "送信しました");
+                        await fetchFeedback();
+                      } else {
+                        setSubmitStatus("error");
+                        setSubmitMessage(data.error ?? "送信に失敗しました");
+                      }
+                    } else {
+                      const res = await fetch("/api/approve", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(target ? { target } : {}),
+                      });
+                      const data = await res.json();
+                      if (res.ok) {
+                        setSubmitStatus("success");
+                        setSubmitMessage(data.message ?? "コミットを依頼しました");
+                      } else {
+                        setSubmitStatus("error");
+                        setSubmitMessage(data.error ?? "コミット依頼に失敗しました");
+                      }
+                    }
+                  } catch (e) {
                     setSubmitStatus("error");
-                    setSubmitMessage(data.error ?? "送信に失敗しました");
+                    setSubmitMessage(e instanceof Error ? e.message : "送信に失敗しました");
                   }
-                } catch (e) {
-                  setSubmitStatus("error");
-                  setSubmitMessage(e instanceof Error ? e.message : "送信に失敗しました");
-                }
-              }}
-              className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 dark:bg-emerald-700 dark:hover:bg-emerald-600"
-            >
-              Submit to Agent
-            </button>
+                }}
+                className={`rounded-l-md border-r border-white/20 px-3 py-1.5 text-sm font-medium text-white ${
+                  actionType === "submit"
+                    ? "bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-700 dark:hover:bg-emerald-600"
+                    : "bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-600"
+                }`}
+              >
+                {actionType === "submit" ? "Submit" : "Approve"}
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActionMenuOpen((prev) => !prev);
+                }}
+                className={`rounded-r-md px-2 py-1.5 text-white ${
+                  actionType === "submit"
+                    ? "bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-700 dark:hover:bg-emerald-600"
+                    : "bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-600"
+                }`}
+                aria-expanded={actionMenuOpen}
+                aria-haspopup="true"
+                aria-label="アクションを切り替え"
+              >
+                <span className="text-[10px] leading-none" aria-hidden>▼</span>
+              </button>
+              {actionMenuOpen && (
+                <div
+                  className="absolute right-0 top-full z-50 mt-1 min-w-[280px] rounded-md border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-800"
+                  role="menu"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setActionType("submit");
+                      setActionMenuOpen(false);
+                    }}
+                    className={`flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-zinc-100 dark:hover:bg-zinc-700 ${
+                      actionType === "submit" ? "bg-zinc-50 dark:bg-zinc-700/50" : ""
+                    }`}
+                  >
+                    <span className="mt-0.5 w-4 shrink-0 text-center text-emerald-600 dark:text-emerald-400" aria-hidden>
+                      {actionType === "submit" ? "✓" : ""}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                        Submit
+                      </div>
+                      <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                        指摘をエージェントに送信し、対応を依頼します。
+                      </div>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setActionType("approve");
+                      setActionMenuOpen(false);
+                    }}
+                    className={`flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-zinc-100 dark:hover:bg-zinc-700 ${
+                      actionType === "approve" ? "bg-zinc-50 dark:bg-zinc-700/50" : ""
+                    }`}
+                  >
+                    <span className="mt-0.5 w-4 shrink-0 text-center text-blue-600 dark:text-blue-400" aria-hidden>
+                      {actionType === "approve" ? "✓" : ""}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                        Approve
+                      </div>
+                      <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                        現在の変更をコミットするようエージェントに依頼します。
+                      </div>
+                    </div>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -855,7 +968,7 @@ export default function Home() {
                 ファイルがありません
               </p>
               <p className="max-w-md text-sm text-zinc-500 dark:text-zinc-400">
-                .ai/config.json の targets が Git
+                config.json の targets が Git
                 リポジトリを指しているか確認してください。
               </p>
               <button

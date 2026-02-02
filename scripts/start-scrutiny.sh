@@ -31,7 +31,9 @@ list_agent_sessions() {
     const sessionBase = config.tmuxSession;
     for (const [name, rel] of Object.entries(config.targets)) {
       if (typeof rel !== 'string') continue;
-      const sanitizedName = sanitizeSessionName(name);
+      const trimmedName = typeof name === 'string' ? name.trim() : '';
+      if (!trimmedName) continue;
+      const sanitizedName = sanitizeSessionName(trimmedName);
       const cwd = path.resolve(root, rel.trim());
       console.log(sessionBase + '-agent-' + sanitizedName + '\t' + cwd);
     }
@@ -61,7 +63,7 @@ if tmux has-session -t "$DEV_SESSION" 2>/dev/null; then
 fi
 
 # 既存の agent セッション（SESSION_BASE-agent-*）をすべて終了
-for sess in $(tmux list-sessions -F '#{session_name}' 2>/dev/null); do
+for sess in $(tmux list-sessions -F '#{session_name}' 2>/dev/null || true); do
   case "$sess" in
     ${SESSION_BASE}-agent-*) tmux kill-session -t "$sess" 2>/dev/null || true ;;
   esac

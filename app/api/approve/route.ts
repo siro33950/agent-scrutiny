@@ -1,13 +1,6 @@
-import { randomUUID } from "crypto";
 import { spawnSync } from "child_process";
-import path from "path";
 import { NextResponse } from "next/server";
 import { loadConfig, getTargetNames, getTargetDir } from "@/lib/config";
-import {
-  readFeedbackUnsent,
-  writeFeedbackForAgent,
-  writeFeedbackUnsent,
-} from "@/lib/feedback";
 
 /**
  * tmux セッション名用に target 名を正規化する（start-scrutiny.sh と同じルール）。
@@ -18,12 +11,7 @@ function sanitizeSessionName(name: string): string {
   return s || "default";
 }
 
-/**
- * エージェントへの指示文。指定したファイル（agent の cwd = targetDir に対する相対パス）を読んで確認するように伝える。
- */
-function buildInstruction(feedbackFileRelativePath: string): string {
-  return `${feedbackFileRelativePath} を読んで、記載の指摘内容（ファイル・行）を確認し、対応を実施してください。`;
-}
+const COMMIT_INSTRUCTION = "現在の変更をコミットしてください。";
 
 export async function POST(request: Request) {
   const projectRoot = process.cwd();
@@ -42,38 +30,13 @@ export async function POST(request: Request) {
     target = targetNames[0] ?? "default";
   }
 
-  const targetDir = getTargetDir(projectRoot, config, target);
-  const data = readFeedbackUnsent(targetDir);
-  if (!data.items.length) {
-    return NextResponse.json(
-      {
-        error: "送信する指摘がありません。",
-      },
-      { status: 400 }
-    );
-  }
+  getTargetDir(projectRoot, config, target);
 
-  const itemsWithAbsolutePath = data.items.map((item) => ({
-    ...item,
-    file_path: path.resolve(targetDir, item.file_path),
-  }));
-
-  const uuid = randomUUID();
-  const filename = `feedback-${uuid}.yaml`;
-  writeFeedbackForAgent(targetDir, filename, itemsWithAbsolutePath);
-
-  const feedbackFileRelativePath = path.relative(
-    targetDir,
-    path.join(targetDir, ".scrutiny", filename)
-  );
   const sessionBase = config.tmuxSession ?? process.env.AGENT_SCRUTINY_TMUX_SESSION ?? "scrutiny";
   const agentSession = `${sessionBase}-agent-${sanitizeSessionName(target)}`;
-
-  const instruction = buildInstruction(feedbackFileRelativePath);
-  // tmux send-keys で改行を送ると解釈が複雑なため、改行をスペースに置換して 1 行で送る。
-  const oneLine = instruction.replace(/\s+/g, " ").trim();
-
+  const oneLine = COMMIT_INSTRUCTION.replace(/\s+/g, " ").trim();
   const agentTarget = `${agentSession}:0.0`;
+
   const sendText = spawnSync("tmux", ["send-keys", "-t", agentTarget, "-l", oneLine], {
     encoding: "utf-8",
     maxBuffer: 1024 * 1024,
@@ -121,10 +84,8 @@ export async function POST(request: Request) {
     );
   }
 
-  writeFeedbackUnsent(targetDir, { items: [] });
-
   return NextResponse.json({
     ok: true,
-    message: "エージェントに送信しました",
+    message: "コミットを依頼しました",
   });
 }
