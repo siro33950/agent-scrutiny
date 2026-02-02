@@ -298,7 +298,8 @@ export default function Home() {
         setDefaultTarget(def);
         setSelectedTarget((prev) => (prev === "" ? def : prev));
       })
-      .catch(() => {
+      .catch((e) => {
+        console.error(e);
         setTargets([]);
         setDefaultTarget("default");
         setSelectedTarget((prev) => (prev === "" ? "default" : prev));
@@ -313,6 +314,7 @@ export default function Home() {
     setOpenTabs([]);
     setActiveTabIndex(0);
     setFileContentCache({});
+    fetchingPathsRef.current = new Set();
     fetchFiles();
   }, [selectedTarget]); // eslint-disable-line react-hooks/exhaustive-deps -- fetchFiles は selectedTarget 依存のため初回のみ fetchFiles で十分
 
