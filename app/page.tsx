@@ -287,7 +287,10 @@ export default function Home() {
   /** 初回: targets を取得して selectedTarget をセット */
   useEffect(() => {
     fetch("/api/targets")
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
       .then((data: { targets?: string[]; defaultTarget?: string }) => {
         const list = Array.isArray(data.targets) ? data.targets : [];
         const def = typeof data.defaultTarget === "string" ? data.defaultTarget : (list[0] ?? "default");
