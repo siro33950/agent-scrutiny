@@ -319,13 +319,16 @@ export default function Home() {
   /** 指摘一覧を API から取得して feedbackItems に反映する */
   const fetchFeedback = useCallback(async () => {
     try {
-      const res = await fetch("/api/feedback");
+      const target = selectedTarget || defaultTarget;
+      const res = await fetch(
+        `/api/feedback?target=${encodeURIComponent(target)}`
+      );
       const data = await res.json();
       setFeedbackItems(Array.isArray(data?.items) ? data.items : []);
     } catch {
       setFeedbackItems([]);
     }
-  }, []);
+  }, [selectedTarget, defaultTarget]);
 
   const currentPath = openTabs[activeTabIndex] ?? null;
   const fileTree = useMemo(() => buildTree(files), [files]);
@@ -446,6 +449,7 @@ export default function Home() {
         file_path: selectedLine.file_path,
         line_number: selectedLine.line_number,
         comment: commentDraft.trim(),
+        target: selectedTarget || defaultTarget,
       };
       if (selectedLine.line_number === 0) {
         body.whole_file = true;
@@ -469,7 +473,7 @@ export default function Home() {
     } finally {
       setSubmitting(false);
     }
-  }, [selectedLine, commentDraft, fetchFeedback]);
+  }, [selectedLine, commentDraft, fetchFeedback, selectedTarget, defaultTarget]);
 
   const highlightLineIds: string[] = currentPath
     ? [
@@ -855,7 +859,7 @@ export default function Home() {
                 ファイルがありません
               </p>
               <p className="max-w-md text-sm text-zinc-500 dark:text-zinc-400">
-                .ai/config.json の targets が Git
+                config.json の targets が Git
                 リポジトリを指しているか確認してください。
               </p>
               <button

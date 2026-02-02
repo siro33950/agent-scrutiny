@@ -36,11 +36,11 @@ yarn-error.log*
 # vercel
 .vercel
 
-# AgentScrutiny: 実際の設定は ignore（.ai/config.json.example をコピーして使用）
-.ai/config.json
+# AgentScrutiny: 実際の設定は ignore（config.json.example をコピーして使用）
+config.json
 
 # AgentScrutiny: 未送信指摘と Submit 時に生成する YAML はローカルのみ
-.ai/feedback-*.yaml
+**/.scrutiny/feedback-*.yaml
 
 # typescript
 *.tsbuildinfo

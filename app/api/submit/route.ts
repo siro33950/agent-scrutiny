@@ -19,25 +19,14 @@ function sanitizeSessionName(name: string): string {
 }
 
 /**
- * エージェントへの指示文。指定したファイル（絶対パス）を読んで確認するように伝える。
- * 絶対パスにすることで、agent の cwd が target 配下でも他リポジトリからでも参照できる。
+ * エージェントへの指示文。指定したファイル（agent の cwd = targetDir に対する相対パス）を読んで確認するように伝える。
  */
-function buildInstruction(feedbackFileAbsolutePath: string): string {
-  return `${feedbackFileAbsolutePath} を読んで、記載の指摘内容（ファイル・行）を確認し、対応を実施してください。`;
+function buildInstruction(feedbackFileRelativePath: string): string {
+  return `${feedbackFileRelativePath} を読んで、記載の指摘内容（ファイル・行）を確認し、対応を実施してください。`;
 }
 
 export async function POST(request: Request) {
   const projectRoot = process.cwd();
-  const data = readFeedbackUnsent(projectRoot);
-  if (!data.items.length) {
-    return NextResponse.json(
-      {
-        error: "送信する指摘がありません。",
-      },
-      { status: 400 }
-    );
-  }
-
   const config = loadConfig(projectRoot);
   const targetNames = getTargetNames(config);
   let target: string;
@@ -54,6 +43,16 @@ export async function POST(request: Request) {
   }
 
   const targetDir = getTargetDir(projectRoot, config, target);
+  const data = readFeedbackUnsent(targetDir);
+  if (!data.items.length) {
+    return NextResponse.json(
+      {
+        error: "送信する指摘がありません。",
+      },
+      { status: 400 }
+    );
+  }
+
   const itemsWithAbsolutePath = data.items.map((item) => ({
     ...item,
     file_path: path.resolve(targetDir, item.file_path),
@@ -61,13 +60,16 @@ export async function POST(request: Request) {
 
   const uuid = randomUUID();
   const filename = `feedback-${uuid}.yaml`;
-  writeFeedbackForAgent(projectRoot, filename, itemsWithAbsolutePath);
+  writeFeedbackForAgent(targetDir, filename, itemsWithAbsolutePath);
 
-  const feedbackFileAbsolutePath = path.join(projectRoot, ".ai", filename);
+  const feedbackFileRelativePath = path.relative(
+    targetDir,
+    path.join(targetDir, ".scrutiny", filename)
+  );
   const sessionBase = config.tmuxSession ?? process.env.AGENT_SCRUTINY_TMUX_SESSION ?? "scrutiny";
   const agentSession = `${sessionBase}-agent-${sanitizeSessionName(target)}`;
 
-  const instruction = buildInstruction(feedbackFileAbsolutePath);
+  const instruction = buildInstruction(feedbackFileRelativePath);
   // tmux send-keys で改行を送ると解釈が複雑なため、改行をスペースに置換して 1 行で送る。
   const oneLine = instruction.replace(/\s+/g, " ").trim();
 
@@ -119,7 +121,7 @@ export async function POST(request: Request) {
     );
   }
 
-  writeFeedbackUnsent(projectRoot, { items: [] });
+  writeFeedbackUnsent(targetDir, { items: [] });
 
   return NextResponse.json({
     ok: true,

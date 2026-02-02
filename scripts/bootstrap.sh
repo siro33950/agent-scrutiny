@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 初回セットアップ用。.ai ディレクトリと config.json を用意し、スクリプトに実行権限を付与する。
+# 初回セットアップ用。.scrutiny ディレクトリと config.json を用意し、スクリプトに実行権限を付与する。
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -7,17 +7,17 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 cd "$PROJECT_ROOT"
 
-mkdir -p .ai
+mkdir -p .scrutiny
 
-if [ ! -f .ai/config.json ]; then
-  if [ -f .ai/config.json.example ]; then
-    cp .ai/config.json.example .ai/config.json
-    echo "Created .ai/config.json from .ai/config.json.example — 必要に応じて編集してください。"
+if [ ! -f config.json ]; then
+  if [ -f config.json.example ]; then
+    cp config.json.example config.json
+    echo "Created config.json from config.json.example — 必要に応じて編集してください。"
   else
-    echo "Warning: .ai/config.json.example が見つかりません。.ai/config.json を手動で作成してください。"
+    echo "Warning: config.json.example が見つかりません。config.json を手動で作成してください。"
   fi
 else
-  echo ".ai/config.json は既に存在します。"
+  echo "config.json は既に存在します。"
 fi
 
 chmod +x "$SCRIPT_DIR"/*.sh 2>/dev/null || true

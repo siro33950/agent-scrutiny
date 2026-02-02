@@ -23,17 +23,18 @@ export interface FeedbackYaml {
 const defaultFeedback: FeedbackYaml = { items: [] };
 
 /**
- * AgentScrutiny プロジェクトルートの .ai/feedback.yaml のパスを返す。
+ * 作業ディレクトリ（target のディレクトリ）の .scrutiny/feedback.yaml のパスを返す。
  */
-export function getFeedbackPath(projectRoot: string = process.cwd()): string {
-  return path.join(projectRoot, ".ai", "feedback.yaml");
+export function getFeedbackPath(workingDir: string = process.cwd()): string {
+  return path.join(workingDir, ".scrutiny", "feedback.yaml");
 }
 
 /**
- * 未送信指摘用 .ai/feedback-unsent.yaml のパスを返す。
+ * 未送信指摘用 .scrutiny/feedback-unsent.yaml のパスを返す。
+ * @param workingDir 作業ディレクトリ（target のディレクトリ）
  */
-export function getFeedbackUnsentPath(projectRoot: string = process.cwd()): string {
-  return path.join(projectRoot, ".ai", "feedback-unsent.yaml");
+export function getFeedbackUnsentPath(workingDir: string = process.cwd()): string {
+  return path.join(workingDir, ".scrutiny", "feedback-unsent.yaml");
 }
 
 function asFeedbackItem(x: unknown): FeedbackItem | null {
@@ -77,10 +78,10 @@ function asFeedbackItem(x: unknown): FeedbackItem | null {
 }
 
 /**
- * .ai/feedback.yaml を読み、パースして返す。ファイルが無い場合は { items: [] }。
+ * 作業ディレクトリの .scrutiny/feedback.yaml を読み、パースして返す。ファイルが無い場合は { items: [] }。
  */
-export function readFeedback(projectRoot: string = process.cwd()): FeedbackYaml {
-  const filePath = getFeedbackPath(projectRoot);
+export function readFeedback(workingDir: string = process.cwd()): FeedbackYaml {
+  const filePath = getFeedbackPath(workingDir);
   if (!existsSync(filePath)) {
     return { ...defaultFeedback };
   }
@@ -103,10 +104,10 @@ export function readFeedback(projectRoot: string = process.cwd()): FeedbackYaml 
  * 既存の feedback に 1 件または複数件をマージし、重複（file_path + line_number + line_number_end）は上書きして書き戻す。
  */
 export function writeFeedback(
-  projectRoot: string,
+  workingDir: string,
   input: FeedbackItem | FeedbackItem[]
 ): FeedbackYaml {
-  const existing = readFeedback(projectRoot);
+  const existing = readFeedback(workingDir);
   const toAdd = Array.isArray(input) ? input : [input];
   const key = (item: FeedbackItem) =>
     `${item.file_path}:${item.line_number}:${item.line_number_end ?? item.line_number}`;
@@ -122,12 +123,12 @@ export function writeFeedback(
       a.file_path.localeCompare(b.file_path) || a.line_number - b.line_number
   );
   const next: FeedbackYaml = { items };
-  const dir = path.dirname(getFeedbackPath(projectRoot));
+  const dir = path.dirname(getFeedbackPath(workingDir));
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
   writeFileSync(
-    getFeedbackPath(projectRoot),
+    getFeedbackPath(workingDir),
     yaml.dump(next, { lineWidth: -1 }),
     "utf-8"
   );
@@ -135,10 +136,10 @@ export function writeFeedback(
 }
 
 /**
- * 未送信指摘用 YAML を読み、パースして返す。ファイルが無い場合は { items: [] }。
+ * 作業ディレクトリの未送信指摘用 YAML を読み、パースして返す。ファイルが無い場合は { items: [] }。
  */
-export function readFeedbackUnsent(projectRoot: string = process.cwd()): FeedbackYaml {
-  const filePath = getFeedbackUnsentPath(projectRoot);
+export function readFeedbackUnsent(workingDir: string = process.cwd()): FeedbackYaml {
+  const filePath = getFeedbackUnsentPath(workingDir);
   if (!existsSync(filePath)) {
     return { ...defaultFeedback };
   }
@@ -161,25 +162,25 @@ export function readFeedbackUnsent(projectRoot: string = process.cwd()): Feedbac
  * 未送信指摘用 YAML に 1 件または複数件をマージし、重複は上書きして書き戻す。
  */
 export function writeFeedbackUnsent(
-  projectRoot: string,
+  workingDir: string,
   input: FeedbackItem | FeedbackItem[] | FeedbackYaml
 ): FeedbackYaml {
   const yamlInput = input && typeof input === "object" && "items" in input;
   const yamlItems = yamlInput ? (input as FeedbackYaml).items : null;
   if (yamlItems && yamlItems.length === 0) {
     const next: FeedbackYaml = { items: [] };
-    const dir = path.dirname(getFeedbackUnsentPath(projectRoot));
+    const dir = path.dirname(getFeedbackUnsentPath(workingDir));
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
     writeFileSync(
-      getFeedbackUnsentPath(projectRoot),
+      getFeedbackUnsentPath(workingDir),
       yaml.dump(next, { lineWidth: -1 }),
       "utf-8"
     );
     return next;
   }
-  const existing = readFeedbackUnsent(projectRoot);
+  const existing = readFeedbackUnsent(workingDir);
   const toAdd: FeedbackItem[] =
     yamlItems !== null
       ? yamlItems
@@ -200,12 +201,12 @@ export function writeFeedbackUnsent(
       a.file_path.localeCompare(b.file_path) || a.line_number - b.line_number
   );
   const next: FeedbackYaml = { items };
-  const dir = path.dirname(getFeedbackUnsentPath(projectRoot));
+  const dir = path.dirname(getFeedbackUnsentPath(workingDir));
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
   writeFileSync(
-    getFeedbackUnsentPath(projectRoot),
+    getFeedbackUnsentPath(workingDir),
     yaml.dump(next, { lineWidth: -1 }),
     "utf-8"
   );
@@ -213,14 +214,14 @@ export function writeFeedbackUnsent(
 }
 
 /**
- * Agent に渡す用に、指定したファイル名で .ai/ 直下に YAML を書き出す。
+ * Agent に渡す用に、作業ディレクトリの .scrutiny/ 直下に指定したファイル名で YAML を書き出す。
  */
 export function writeFeedbackForAgent(
-  projectRoot: string,
+  workingDir: string,
   filename: string,
   items: FeedbackItem[]
 ): void {
-  const dir = path.join(projectRoot, ".ai");
+  const dir = path.join(workingDir, ".scrutiny");
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }

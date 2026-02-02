@@ -1,18 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
+import { loadConfig, getTargetDir, getTargetNames } from "@/lib/config";
 import {
   readFeedbackUnsent,
   writeFeedbackUnsent,
   type FeedbackItem,
 } from "@/lib/feedback";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const projectRoot = process.cwd();
-  const data = readFeedbackUnsent(projectRoot);
+  const config = loadConfig(projectRoot);
+  const targetNames = getTargetNames(config);
+  const targetParam = request.nextUrl.searchParams.get("target");
+  const target =
+    targetParam && config.targets[targetParam] ? targetParam : targetNames[0] ?? "default";
+  const targetDir = getTargetDir(projectRoot, config, target);
+  const data = readFeedbackUnsent(targetDir);
   return NextResponse.json(data);
 }
 
 export async function POST(request: NextRequest) {
   const projectRoot = process.cwd();
+  const config = loadConfig(projectRoot);
+  const targetNames = getTargetNames(config);
   let body: unknown;
   try {
     body = await request.json();
@@ -22,6 +31,15 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     );
   }
+  const bodyTarget =
+    body && typeof body === "object" && "target" in body
+      ? (body as { target: unknown }).target
+      : undefined;
+  const target =
+    typeof bodyTarget === "string" && config.targets[bodyTarget]
+      ? bodyTarget
+      : targetNames[0] ?? "default";
+  const targetDir = getTargetDir(projectRoot, config, target);
 
   const asItem = (x: unknown): FeedbackItem | null => {
     if (
@@ -90,7 +108,7 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    const result = writeFeedbackUnsent(projectRoot, parsed);
+    const result = writeFeedbackUnsent(targetDir, parsed);
     return NextResponse.json(result);
   }
 
@@ -104,6 +122,6 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     );
   }
-  const result = writeFeedbackUnsent(projectRoot, single);
+  const result = writeFeedbackUnsent(targetDir, single);
   return NextResponse.json(result);
 }

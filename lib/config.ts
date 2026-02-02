@@ -17,11 +17,11 @@ const defaultConfig: Omit<ScrutinyConfig, "targets"> & {
 };
 
 /**
- * AgentScrutiny プロジェクトルートの .ai/config.json を読み、
+ * AgentScrutiny プロジェクトルートの config.json を読み、
  * targets のみで扱う。targets が無い・空の場合は { "default": "." } とする。
  */
 export function loadConfig(projectRoot: string = process.cwd()): ScrutinyConfig {
-  const configPath = path.join(projectRoot, ".ai", "config.json");
+  const configPath = path.join(projectRoot, "config.json");
   let raw: Partial<ScrutinyConfig> = {};
   try {
     raw = JSON.parse(readFileSync(configPath, "utf-8")) as Partial<ScrutinyConfig>;
