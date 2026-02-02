@@ -323,6 +323,7 @@ export default function Home() {
 
   /** 指摘一覧を API から取得して feedbackItems に反映する */
   const fetchFeedback = useCallback(async () => {
+    if (!(selectedTarget || defaultTarget)) return;
     try {
       const target = selectedTarget || defaultTarget;
       const res = await fetch(
