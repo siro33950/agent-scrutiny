@@ -5,13 +5,14 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# .ai/config.json から tmuxSession、agentCommand、targets を取得。target ごとに "SESSION_BASE-agent-TARGET_NAME\tCWD" を 1 行ずつ出力する。
+# config.json から tmuxSession、agentCommand、targets を取得。target ごとに "SESSION_BASE-agent-SANITIZED_NAME\tCWD" を 1 行ずつ出力する。
+# セッション名は英数字・ハイフン・アンダースコアのみに正規化する（スペースや特殊文字は _ に置換）。
 list_agent_sessions() {
   node -e "
     const path = require('path');
     const fs = require('fs');
     const root = process.argv[1];
-    const configPath = path.join(root, '.ai', 'config.json');
+    const configPath = path.join(root, 'config.json');
     let config = { tmuxSession: 'scrutiny', agentCommand: '', targets: { default: '.' } };
     try {
       const raw = fs.readFileSync(configPath, 'utf-8');
@@ -22,11 +23,17 @@ list_agent_sessions() {
         ? c.targets
         : { default: '.' };
     } catch (e) {}
+    function sanitizeSessionName(name) {
+      if (typeof name !== 'string') return 'default';
+      const s = name.replace(/[^a-zA-Z0-9_-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+      return s || 'default';
+    }
     const sessionBase = config.tmuxSession;
     for (const [name, rel] of Object.entries(config.targets)) {
       if (typeof rel !== 'string') continue;
+      const sanitizedName = sanitizeSessionName(name);
       const cwd = path.resolve(root, rel.trim());
-      console.log(sessionBase + '-agent-' + name + '\t' + cwd);
+      console.log(sessionBase + '-agent-' + sanitizedName + '\t' + cwd);
     }
   " "$PROJECT_ROOT"
 }
@@ -35,7 +42,7 @@ CONFIG_JSON="$(node -e "
   const path = require('path');
   const fs = require('fs');
   const root = process.argv[1];
-  const configPath = path.join(root, '.ai', 'config.json');
+  const configPath = path.join(root, 'config.json');
   let c = { tmuxSession: 'scrutiny', agentCommand: '' };
   try {
     c = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
@@ -75,7 +82,7 @@ while IFS= read -r line; do
   if [ -n "$AGENT_CMD" ]; then
     tmux send-keys -t "${sess}:0.0" "$AGENT_CMD" Enter
   else
-    tmux send-keys -t "${sess}:0.0" "echo 'AI エージェント（aider / Claude Code 等）を起動するか、.ai/config.json の agentCommand にコマンドを指定してください'" Enter
+    tmux send-keys -t "${sess}:0.0" "echo 'AI エージェント（aider / Claude Code 等）を起動するか、config.json の agentCommand にコマンドを指定してください'" Enter
   fi
 done <<< "$(list_agent_sessions)"
 

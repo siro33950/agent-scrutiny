@@ -295,7 +295,13 @@ export default function Home() {
         setDefaultTarget(def);
         setSelectedTarget((prev) => (prev === "" ? def : prev));
       })
-      .catch(() => {});
+      .catch(() => {
+        setTargets([]);
+        setDefaultTarget("default");
+        setSelectedTarget((prev) => (prev === "" ? "default" : prev));
+        setLoading(false);
+        setError("ターゲット一覧の取得に失敗しました");
+      });
   }, []);
 
   /** selectedTarget が決まったらファイル一覧を取得。target 変更時はタブ・キャッシュをクリア */

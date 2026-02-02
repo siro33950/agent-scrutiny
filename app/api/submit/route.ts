@@ -10,6 +10,15 @@ import {
 } from "@/lib/feedback";
 
 /**
+ * tmux セッション名用に target 名を正規化する（start-scrutiny.sh と同じルール）。
+ * 英数字・ハイフン・アンダースコアのみ許可し、それ以外は _ に置換する。
+ */
+function sanitizeSessionName(name: string): string {
+  const s = name.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
+  return s || "default";
+}
+
+/**
  * エージェントへの指示文。指定したファイル（絶対パス）を読んで確認するように伝える。
  * 絶対パスにすることで、agent の cwd が target 配下でも他リポジトリからでも参照できる。
  */
@@ -56,7 +65,7 @@ export async function POST(request: Request) {
 
   const feedbackFileAbsolutePath = path.join(projectRoot, ".ai", filename);
   const sessionBase = config.tmuxSession ?? process.env.AGENT_SCRUTINY_TMUX_SESSION ?? "scrutiny";
-  const agentSession = `${sessionBase}-agent-${target}`;
+  const agentSession = `${sessionBase}-agent-${sanitizeSessionName(target)}`;
 
   const instruction = buildInstruction(feedbackFileAbsolutePath);
   // tmux send-keys で改行を送ると解釈が複雑なため、改行をスペースに置換して 1 行で送る。
