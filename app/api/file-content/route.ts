@@ -4,6 +4,7 @@ import path from "path";
 import { NextResponse } from "next/server";
 import { loadConfig, getTargetDir } from "@/lib/config";
 import { validateBaseRef } from "@/lib/git-ref";
+import { validatePath, normalizePath } from "@/lib/api/validatePath";
 
 /**
  * 選択ファイルの旧版（HEAD）・新版（作業ツリー）の全文を返す。
@@ -24,18 +25,13 @@ export async function GET(request: Request) {
   }
   const targetDir = getTargetDir(projectRoot, config, target);
   const filePath = searchParams.get("path");
-  if (!filePath || !filePath.trim()) {
-    return NextResponse.json(
-      { error: "path クエリが必要です" },
-      { status: 400 }
-    );
-  }
 
-  // パスに .. が含まれる場合は拒否
-  const normalized = path.normalize(filePath.trim());
-  if (normalized.startsWith("..") || path.isAbsolute(normalized)) {
-    return NextResponse.json({ error: "不正な path です" }, { status: 400 });
+  // パス検証（パストラバーサル対策）
+  const pathError = validatePath(filePath ?? "", targetDir);
+  if (pathError) {
+    return NextResponse.json({ error: pathError }, { status: 400 });
   }
+  const normalized = normalizePath(filePath!);
 
   let oldContent = "";
   let newContent = "";
