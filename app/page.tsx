@@ -13,6 +13,7 @@ import { useFileContent } from "@/app/hooks/useFileContent";
 import { useViewed } from "@/app/hooks/useViewed";
 import { useInlineComment } from "@/app/hooks/useInlineComment";
 import { useTheme } from "@/app/hooks/useTheme";
+import { useExpandedFolders } from "@/app/hooks/useExpandedFolders";
 import { Header } from "@/app/components/Header/Header";
 import { FileTreeSidebar } from "@/app/components/FileTree/FileTreeSidebar";
 import toast from "react-hot-toast";
@@ -28,9 +29,9 @@ export default function Home() {
   const { openTabs, activeTabIndex, setActiveTabIndex, selectFile, closeTab, clearTabs } = useTabs();
   const inlineComment = useInlineComment(effectiveTarget, fetchFeedback, setError);
   const { mode: themeMode, setMode: setThemeMode, isDark } = useTheme();
+  const { expandedFolders, toggleFolder, expandAll, collapseAll, reset: resetExpandedFolders } = useExpandedFolders();
 
   const [diffBase, setDiffBase] = useState<string>("HEAD");
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [treeViewMode, setTreeViewMode] = useState<"changed" | "full">("full");
   const [feedbackPanelOpen, setFeedbackPanelOpen] = useState(false);
   const [feedbackFilter, setFeedbackFilter] = useState<"all" | "draft" | "submitted" | "resolved">("all");
@@ -43,22 +44,43 @@ export default function Home() {
   const { viewedFiles, toggleViewed } = useViewed(effectiveTarget);
   const { fileContentCache, clearCache } = useFileContent(openTabs, activeTabIndex, effectiveTarget, diffBase);
 
-  // Target change: clear tabs, cache, fetch files
+  const prevTargetRef = useRef<string | null>(null);
+  const prevDiffBaseRef = useRef<string | null>(null);
+
+  // Target change: clear tabs, cache, fetch files (skip on initial load)
   useEffect(() => {
     if (!selectedTarget) return;
-    clearTabs();
-    clearCache();
-    setExpandedFolders(new Set());
-    toast.dismiss();
-    inlineComment.cancel();
-    fetchFiles(effectiveTarget, diffBase);
+    const isInitial = prevTargetRef.current === null;
+    const hasChanged = prevTargetRef.current !== selectedTarget;
+    prevTargetRef.current = selectedTarget;
+
+    if (isInitial) {
+      // Initial load: just fetch files without clearing persisted state
+      fetchFiles(effectiveTarget, diffBase);
+      return;
+    }
+
+    if (hasChanged) {
+      clearTabs();
+      clearCache();
+      resetExpandedFolders();
+      toast.dismiss();
+      inlineComment.cancel();
+      fetchFiles(effectiveTarget, diffBase);
+    }
   }, [selectedTarget]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // DiffBase change: clear cache, refetch files
+  // DiffBase change: clear cache, refetch files (skip on initial load)
   useEffect(() => {
     if (!selectedTarget) return;
+    const isInitial = prevDiffBaseRef.current === null;
+    const hasChanged = prevDiffBaseRef.current !== diffBase;
+    prevDiffBaseRef.current = diffBase;
+
+    if (isInitial || !hasChanged) return;
+
     clearCache();
-    setExpandedFolders(new Set());
+    resetExpandedFolders();
     fetchFiles(effectiveTarget, diffBase);
   }, [diffBase]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -87,15 +109,6 @@ export default function Home() {
     }
     return map;
   }, [feedbackItems]);
-
-  const toggleFolder = useCallback((path: string) => {
-    setExpandedFolders((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  }, []);
 
   const handleWholeFileFeedback = useCallback(() => {
     if (!currentPath) return;
@@ -188,9 +201,9 @@ export default function Home() {
 
   const handleRefresh = useCallback(() => {
     toast.dismiss();
-    setExpandedFolders(new Set());
+    resetExpandedFolders();
     fetchFiles(effectiveTarget, diffBase);
-  }, [fetchFiles, effectiveTarget, diffBase]);
+  }, [fetchFiles, effectiveTarget, diffBase, resetExpandedFolders]);
 
   // Prev/Next file navigation
   const handlePrevFile = useCallback(() => {
@@ -302,8 +315,8 @@ export default function Home() {
             onSelectFile={selectFile}
             onToggleFolder={toggleFolder}
             onSetTreeViewMode={setTreeViewMode}
-            onExpandAll={() => setExpandedFolders(new Set(collectFolderPaths(treeViewMode === "changed" ? changedFilesTree : fileTree)))}
-            onCollapseAll={() => setExpandedFolders(new Set())}
+            onExpandAll={() => expandAll(collectFolderPaths(treeViewMode === "changed" ? changedFilesTree : fileTree))}
+            onCollapseAll={collapseAll}
             onRefresh={handleRefresh}
             onToggleViewed={toggleViewed}
           />
