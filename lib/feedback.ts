@@ -16,6 +16,8 @@ export interface FeedbackItem {
   comment: string;
   /** 完了に移した日時（ISO8601）。feedback-resolved.yaml にのみ保持。 */
   resolved_at?: string;
+  /** エージェント送信日時（ISO8601）。送信済みは編集不可。 */
+  submitted_at?: string;
 }
 
 export interface FeedbackYaml {
@@ -73,6 +75,10 @@ function asFeedbackItem(x: unknown): FeedbackItem | null {
     "resolved_at" in o && typeof o.resolved_at === "string"
       ? o.resolved_at
       : undefined;
+  const submitted_at =
+    "submitted_at" in o && typeof o.submitted_at === "string"
+      ? o.submitted_at
+      : undefined;
   return {
     file_path: String(o.file_path),
     line_number,
@@ -80,6 +86,7 @@ function asFeedbackItem(x: unknown): FeedbackItem | null {
     ...(isWholeFile || line_number === 0 ? { whole_file: true as const } : {}),
     comment: String(o.comment),
     ...(resolved_at ? { resolved_at } : {}),
+    ...(submitted_at ? { submitted_at } : {}),
   };
 }
 
@@ -225,6 +232,75 @@ export function moveItemsToResolved(
     yaml.dump({ items: remaining }, { lineWidth: -1 }),
     "utf-8"
   );
+}
+
+/**
+ * 指定した指摘を feedback.yaml または feedback-resolved.yaml から完全削除する。
+ * @param fromResolved true の場合は feedback-resolved.yaml から削除
+ */
+export function deleteFeedbackItems(
+  workingDir: string,
+  items: FeedbackItem[],
+  fromResolved = false
+): FeedbackYaml {
+  if (items.length === 0) {
+    return fromResolved ? readFeedbackResolved(workingDir) : readFeedback(workingDir);
+  }
+  const removeKeys = new Set(items.map(itemKey));
+
+  if (fromResolved) {
+    const existing = readFeedbackResolved(workingDir);
+    const remaining = existing.items.filter((i) => !removeKeys.has(itemKey(i)));
+    const next: FeedbackYaml = { items: remaining };
+    const dir = path.dirname(getFeedbackResolvedPath(workingDir));
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      getFeedbackResolvedPath(workingDir),
+      yaml.dump(next, { lineWidth: -1 }),
+      "utf-8"
+    );
+    return next;
+  }
+
+  const existing = readFeedback(workingDir);
+  const remaining = existing.items.filter((i) => !removeKeys.has(itemKey(i)));
+  const next: FeedbackYaml = { items: remaining };
+  const dir = path.dirname(getFeedbackPath(workingDir));
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    getFeedbackPath(workingDir),
+    yaml.dump(next, { lineWidth: -1 }),
+    "utf-8"
+  );
+  return next;
+}
+
+/**
+ * resolved な指摘を feedback-resolved.yaml から削除し、feedback.yaml に戻す（resolved_at をクリア）。
+ */
+export function unresolveItems(
+  workingDir: string,
+  items: FeedbackItem[]
+): void {
+  if (items.length === 0) return;
+  const resolvedData = readFeedbackResolved(workingDir);
+  const removeKeys = new Set(items.map(itemKey));
+  const remaining = resolvedData.items.filter((i) => !removeKeys.has(itemKey(i)));
+  const toRestore = resolvedData.items
+    .filter((i) => removeKeys.has(itemKey(i)))
+    .map(({ resolved_at: _ra, submitted_at: _sa, ...rest }) => rest);
+  // Write back resolved yaml
+  const dir = path.dirname(getFeedbackResolvedPath(workingDir));
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    getFeedbackResolvedPath(workingDir),
+    yaml.dump({ items: remaining }, { lineWidth: -1 }),
+    "utf-8"
+  );
+  // Add back to feedback.yaml
+  if (toRestore.length > 0) {
+    writeFeedback(workingDir, toRestore);
+  }
 }
 
 /**

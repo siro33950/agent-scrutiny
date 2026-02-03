@@ -3,11 +3,7 @@ import { spawnSync } from "child_process";
 import path from "path";
 import { NextResponse } from "next/server";
 import { loadConfig, getTargetNames, getTargetDir } from "@/lib/config";
-import {
-  readFeedback,
-  writeFeedbackForAgent,
-  moveItemsToResolved,
-} from "@/lib/feedback";
+import { readFeedback, writeFeedback, writeFeedbackForAgent } from "@/lib/feedback";
 
 /**
  * tmux セッション名用に target 名を正規化する（start-scrutiny.sh と同じルール）。
@@ -121,7 +117,11 @@ export async function POST(request: Request) {
     );
   }
 
-  moveItemsToResolved(targetDir, data.items);
+  const submittedAt = new Date().toISOString();
+  const itemsWithSubmittedAt = data.items.map((item) =>
+    item.submitted_at ? item : { ...item, submitted_at: submittedAt }
+  );
+  writeFeedback(targetDir, itemsWithSubmittedAt);
 
   return NextResponse.json({
     ok: true,
