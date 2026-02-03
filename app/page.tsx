@@ -294,6 +294,7 @@ export default function Home() {
         actionType={actionType}
         onActionTypeChange={setActionType}
         onAction={handleAction}
+        unsentCount={feedbackItems.filter((i) => !i.submitted_at).length}
       />
 
       {(error || submitStatus !== "idle") && !dismissBanner && (

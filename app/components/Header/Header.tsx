@@ -13,6 +13,7 @@ interface HeaderProps {
   actionType: "submit" | "approve";
   onActionTypeChange: (type: "submit" | "approve") => void;
   onAction: () => Promise<void>;
+  unsentCount?: number;
 }
 
 export function Header({
@@ -25,6 +26,7 @@ export function Header({
   actionType,
   onActionTypeChange,
   onAction,
+  unsentCount = 0,
 }: HeaderProps) {
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const actionMenuRef = useRef<HTMLDivElement>(null);
@@ -72,13 +74,18 @@ export function Header({
           <button
             type="button"
             onClick={onAction}
-            className={`rounded-l-md border-r border-white/20 px-3 py-1.5 text-sm font-medium text-white ${
+            className={`relative rounded-l-md border-r border-white/20 px-3 py-1.5 text-sm font-medium text-white ${
               actionType === "submit"
                 ? "bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-700 dark:hover:bg-emerald-600"
                 : "bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-600"
             }`}
           >
             {actionType === "submit" ? "Submit" : "Approve"}
+            {actionType === "submit" && unsentCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white shadow-sm">
+                {unsentCount > 99 ? "99+" : unsentCount}
+              </span>
+            )}
           </button>
           <button
             type="button"
