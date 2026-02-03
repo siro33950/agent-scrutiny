@@ -31,6 +31,7 @@ cp config.json.example config.json
 | `targetDir`    | レビュー対象の Git リポジトリの絶対パス。`git diff HEAD` をこのディレクトリで実行する。                                                 |
 | `tmuxSession`  | Submit 時にコマンドを送る tmux セッション名。既定: `scrutiny`。                                                                         |
 | `agentCommand` | `start-scrutiny.sh` 実行時に agent セッション（`<tmuxSession>-agent`）で自動起動するコマンド（例: `aider`）。未設定時は何も起動しない。 |
+| `hooks`        | Submit前後に実行するコマンドの設定。詳細は下記参照。                                                                                    |
 
 環境変数（任意）:
 
@@ -43,9 +44,24 @@ cp config.json.example config.json
 {
   "targetDir": "/path/to/your/repo",
   "tmuxSession": "scrutiny",
-  "agentCommand": "agent"
+  "agentCommand": "agent",
+  "hooks": {
+    "preSubmit": ["npm run lint"],
+    "postSubmit": ["echo 'Done!'"]
+  }
 }
 ```
+
+### Hooks
+
+`hooks` でSubmit前後に任意のコマンドを実行できます。
+
+| キー         | 説明                                           |
+| ------------ | ---------------------------------------------- |
+| `preSubmit`  | Submit前に実行するコマンドの配列。順番に実行。 |
+| `postSubmit` | Submit後に実行するコマンドの配列。順番に実行。 |
+
+コマンドは対象の `targetDir` をカレントディレクトリとして実行されます。`preSubmit` でエラー（終了コード非0）が発生した場合、Submitは中断されます。
 
 ## 使い方
 

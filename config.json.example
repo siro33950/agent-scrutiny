@@ -4,5 +4,9 @@
     "subapp": "./packages/web"
   },
   "tmuxSession": "scrutiny",
-  "agentCommand": "agent"
+  "agentCommand": "agent",
+  "hooks": {
+    "preSubmit": ["npm run lint", "npm run test"],
+    "postSubmit": ["echo 'Feedback submitted!'"]
+  }
 }
