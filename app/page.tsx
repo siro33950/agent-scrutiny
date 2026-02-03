@@ -12,9 +12,11 @@ import { useTabs } from "@/app/hooks/useTabs";
 import { useFileContent } from "@/app/hooks/useFileContent";
 import { useViewed } from "@/app/hooks/useViewed";
 import { useInlineComment } from "@/app/hooks/useInlineComment";
+import { useTheme } from "@/app/hooks/useTheme";
+import { useExpandedFolders } from "@/app/hooks/useExpandedFolders";
 import { Header } from "@/app/components/Header/Header";
-import { Banner } from "@/app/components/Banner";
 import { FileTreeSidebar } from "@/app/components/FileTree/FileTreeSidebar";
+import toast from "react-hot-toast";
 import { DiffViewerPanel } from "@/app/components/DiffViewer/DiffViewerPanel";
 import { FeedbackPanel } from "@/app/components/Feedback/FeedbackPanel";
 import { ConfirmDialog } from "@/app/components/ConfirmDialog";
@@ -27,15 +29,13 @@ export default function Home() {
   const { feedbackItems, resolvedItems, fetchFeedback } = useFeedback(effectiveTarget);
   const { openTabs, activeTabIndex, setActiveTabIndex, selectFile, closeTab, clearTabs } = useTabs();
   const inlineComment = useInlineComment(effectiveTarget, fetchFeedback, setError);
+  const { mode: themeMode, setMode: setThemeMode, isDark } = useTheme();
+  const { expandedFolders, toggleFolder, expandAll, collapseAll, reset: resetExpandedFolders } = useExpandedFolders();
 
   const [diffBase, setDiffBase] = useState<string>("HEAD");
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [treeViewMode, setTreeViewMode] = useState<"changed" | "full">("full");
   const [feedbackPanelOpen, setFeedbackPanelOpen] = useState(false);
   const [feedbackFilter, setFeedbackFilter] = useState<"all" | "draft" | "submitted" | "resolved">("all");
-  const [submitStatus, setSubmitStatus] = useState<"idle" | "success" | "error">("idle");
-  const [submitMessage, setSubmitMessage] = useState("");
-  const [dismissBanner, setDismissBanner] = useState<string | null>(null);
   const [actionType, setActionType] = useState<"submit" | "approve">("submit");
   const [viewMode, setViewMode] = useState<ViewMode>("inline");
   const [confirmDeleteItem, setConfirmDeleteItem] = useState<FeedbackItem | null>(null);
@@ -45,22 +45,43 @@ export default function Home() {
   const { viewedFiles, toggleViewed } = useViewed(effectiveTarget);
   const { fileContentCache, clearCache } = useFileContent(openTabs, activeTabIndex, effectiveTarget, diffBase);
 
-  // Target change: clear tabs, cache, fetch files
+  const prevTargetRef = useRef<string | null>(null);
+  const prevDiffBaseRef = useRef<string | null>(null);
+
+  // Target change: clear tabs, cache, fetch files (skip on initial load)
   useEffect(() => {
     if (!selectedTarget) return;
-    clearTabs();
-    clearCache();
-    setExpandedFolders(new Set());
-    setDismissBanner(null);
-    inlineComment.cancel();
-    fetchFiles(effectiveTarget, diffBase);
+    const isInitial = prevTargetRef.current === null;
+    const hasChanged = prevTargetRef.current !== selectedTarget;
+    prevTargetRef.current = selectedTarget;
+
+    if (isInitial) {
+      // Initial load: just fetch files without clearing persisted state
+      fetchFiles(effectiveTarget, diffBase);
+      return;
+    }
+
+    if (hasChanged) {
+      clearTabs();
+      clearCache();
+      resetExpandedFolders();
+      toast.dismiss();
+      inlineComment.cancel();
+      fetchFiles(effectiveTarget, diffBase);
+    }
   }, [selectedTarget]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // DiffBase change: clear cache, refetch files
+  // DiffBase change: clear cache, refetch files (skip on initial load)
   useEffect(() => {
     if (!selectedTarget) return;
+    const isInitial = prevDiffBaseRef.current === null;
+    const hasChanged = prevDiffBaseRef.current !== diffBase;
+    prevDiffBaseRef.current = diffBase;
+
+    if (isInitial || !hasChanged) return;
+
     clearCache();
-    setExpandedFolders(new Set());
+    resetExpandedFolders();
     fetchFiles(effectiveTarget, diffBase);
   }, [diffBase]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -90,15 +111,6 @@ export default function Home() {
     return map;
   }, [feedbackItems]);
 
-  const toggleFolder = useCallback((path: string) => {
-    setExpandedFolders((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  }, []);
-
   const handleWholeFileFeedback = useCallback(() => {
     if (!currentPath) return;
     inlineComment.startCreate(currentPath, 0);
@@ -106,9 +118,7 @@ export default function Home() {
   }, [currentPath, inlineComment]);
 
   const handleAction = useCallback(async () => {
-    setSubmitStatus("idle");
-    setSubmitMessage("");
-    setDismissBanner(null);
+    toast.dismiss("action");
     try {
       if (actionType === "submit") {
         const res = await fetch("/api/submit", {
@@ -118,12 +128,10 @@ export default function Home() {
         });
         const data = await res.json();
         if (res.ok) {
-          setSubmitStatus("success");
-          setSubmitMessage(data.message ?? "送信しました");
+          toast.success(data.message ?? "送信しました", { id: "action" });
           await fetchFeedback();
         } else {
-          setSubmitStatus("error");
-          setSubmitMessage(data.error ?? "送信に失敗しました");
+          toast.error(data.error ?? "送信に失敗しました", { id: "action" });
         }
       } else {
         const res = await fetch("/api/approve", {
@@ -133,23 +141,18 @@ export default function Home() {
         });
         const data = await res.json();
         if (res.ok) {
-          setSubmitStatus("success");
-          setSubmitMessage(data.message ?? "コミットを依頼しました");
+          toast.success(data.message ?? "コミットを依頼しました", { id: "action" });
         } else {
-          setSubmitStatus("error");
-          setSubmitMessage(data.error ?? "コミット依頼に失敗しました");
+          toast.error(data.error ?? "コミット依頼に失敗しました", { id: "action" });
         }
       }
     } catch (e) {
-      setSubmitStatus("error");
-      setSubmitMessage(e instanceof Error ? e.message : "送信に失敗しました");
+      toast.error(e instanceof Error ? e.message : "送信に失敗しました", { id: "action" });
     }
   }, [actionType, effectiveTarget, fetchFeedback]);
 
   const handleSubmitAll = useCallback(async () => {
-    setSubmitStatus("idle");
-    setSubmitMessage("");
-    setDismissBanner(null);
+    toast.dismiss("action");
     try {
       const res = await fetch("/api/submit", {
         method: "POST",
@@ -158,16 +161,13 @@ export default function Home() {
       });
       const data = await res.json();
       if (res.ok) {
-        setSubmitStatus("success");
-        setSubmitMessage(data.message ?? "送信しました");
+        toast.success(data.message ?? "送信しました", { id: "action" });
         await fetchFeedback();
       } else {
-        setSubmitStatus("error");
-        setSubmitMessage(data.error ?? "送信に失敗しました");
+        toast.error(data.error ?? "送信に失敗しました", { id: "action" });
       }
     } catch (e) {
-      setSubmitStatus("error");
-      setSubmitMessage(e instanceof Error ? e.message : "送信に失敗しました");
+      toast.error(e instanceof Error ? e.message : "送信に失敗しました", { id: "action" });
     }
   }, [effectiveTarget, fetchFeedback]);
 
@@ -201,10 +201,10 @@ export default function Home() {
   }, []);
 
   const handleRefresh = useCallback(() => {
-    setDismissBanner(null);
-    setExpandedFolders(new Set());
+    toast.dismiss();
+    resetExpandedFolders();
     fetchFiles(effectiveTarget, diffBase);
-  }, [fetchFiles, effectiveTarget, diffBase]);
+  }, [fetchFiles, effectiveTarget, diffBase, resetExpandedFolders]);
 
   // Prev/Next file navigation
   const handlePrevFile = useCallback(() => {
@@ -270,9 +270,6 @@ export default function Home() {
       ]
     : [];
 
-  const isDark =
-    typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches;
-
   // Derive creatingAtLine for current file
   const creatingAtLine =
     inlineComment.state.creatingAt?.filePath === currentPath
@@ -295,16 +292,9 @@ export default function Home() {
         actionType={actionType}
         onActionTypeChange={setActionType}
         onAction={handleAction}
+        themeMode={themeMode}
+        onThemeModeChange={setThemeMode}
       />
-
-      {(error || submitStatus !== "idle") && !dismissBanner && (
-        <Banner
-          error={error}
-          submitStatus={submitStatus}
-          submitMessage={submitMessage}
-          onDismiss={setDismissBanner}
-        />
-      )}
 
       <main className="flex min-h-0 flex-1 overflow-hidden">
         {!error && !loading && files.length > 0 && (
@@ -327,8 +317,8 @@ export default function Home() {
               onSelectFile={selectFile}
               onToggleFolder={toggleFolder}
               onSetTreeViewMode={setTreeViewMode}
-              onExpandAll={() => setExpandedFolders(new Set(collectFolderPaths(treeViewMode === "changed" ? changedFilesTree : fileTree)))}
-              onCollapseAll={() => setExpandedFolders(new Set())}
+              onExpandAll={() => expandAll(collectFolderPaths(treeViewMode === "changed" ? changedFilesTree : fileTree))}
+              onCollapseAll={collapseAll}
               onRefresh={handleRefresh}
               onToggleViewed={toggleViewed}
             />

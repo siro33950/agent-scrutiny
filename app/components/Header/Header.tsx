@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ActionMenu } from "./ActionMenu";
+import type { ThemeMode } from "@/app/hooks/useTheme";
 
 interface HeaderProps {
   targets: string[];
@@ -13,7 +14,33 @@ interface HeaderProps {
   actionType: "submit" | "approve";
   onActionTypeChange: (type: "submit" | "approve") => void;
   onAction: () => Promise<void>;
+  themeMode: ThemeMode;
+  onThemeModeChange: (mode: ThemeMode) => void;
 }
+
+const ThemeIcon = ({ mode }: { mode: ThemeMode }) => {
+  if (mode === "light") {
+    return (
+      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <circle cx="12" cy="12" r="5" />
+        <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+      </svg>
+    );
+  }
+  if (mode === "dark") {
+    return (
+      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+      </svg>
+    );
+  }
+  return (
+    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <rect x="2" y="3" width="20" height="14" rx="2" />
+      <path d="M8 21h8M12 17v4" />
+    </svg>
+  );
+};
 
 export function Header({
   targets,
@@ -25,6 +52,8 @@ export function Header({
   actionType,
   onActionTypeChange,
   onAction,
+  themeMode,
+  onThemeModeChange,
 }: HeaderProps) {
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const actionMenuRef = useRef<HTMLDivElement>(null);
@@ -68,18 +97,32 @@ export function Header({
             ))}
           </select>
         </div>
-        <div className="relative flex" ref={actionMenuRef}>
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={onAction}
-            className={`rounded-l-md border-r border-white/20 px-3 py-1.5 text-sm font-medium text-white ${
-              actionType === "submit"
-                ? "bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-700 dark:hover:bg-emerald-600"
-                : "bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-600"
-            }`}
+            onClick={() => {
+              const modes: ThemeMode[] = ["system", "light", "dark"];
+              const idx = modes.indexOf(themeMode);
+              onThemeModeChange(modes[(idx + 1) % modes.length]);
+            }}
+            className="rounded-md p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            title={`テーマ: ${themeMode === "system" ? "システム" : themeMode === "light" ? "ライト" : "ダーク"}`}
+            aria-label="テーマを切り替え"
           >
-            {actionType === "submit" ? "Submit" : "Approve"}
+            <ThemeIcon mode={themeMode} />
           </button>
+          <div className="relative flex" ref={actionMenuRef}>
+            <button
+              type="button"
+              onClick={onAction}
+              className={`rounded-l-md border-r border-white/20 px-3 py-1.5 text-sm font-medium text-white ${
+                actionType === "submit"
+                  ? "bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-700 dark:hover:bg-emerald-600"
+                  : "bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-600"
+              }`}
+            >
+              {actionType === "submit" ? "Submit" : "Approve"}
+            </button>
           <button
             type="button"
             onClick={(e) => {
@@ -106,6 +149,7 @@ export function Header({
               }}
             />
           )}
+          </div>
         </div>
       </div>
     </header>
