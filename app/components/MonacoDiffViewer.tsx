@@ -129,6 +129,7 @@ export function MonacoDiffViewer({
   }, [viewMode]);
 
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const diffEditorRef = useRef<Monaco.editor.IDiffEditor | null>(null);
   const modifiedEditorRef = useRef<Monaco.editor.ICodeEditor | null>(null);
   const originalEditorRef = useRef<Monaco.editor.ICodeEditor | null>(null);
   const monacoRef = useRef<typeof Monaco | null>(null);
@@ -242,217 +243,226 @@ export function MonacoDiffViewer({
   // Sync ViewZones for inline comments (expanded only) and Decorations for collapsed
   useEffect(() => {
     const editor = modifiedEditorRef.current;
+    const diffEditor = diffEditorRef.current;
     const monaco = monacoRef.current;
     if (!editor || !monaco || !editorReady) return;
 
-    // Cleanup previous observers
-    for (const obs of observersRef.current) obs.disconnect();
-    observersRef.current = [];
+    // hideUnchangedRegions の変更が必要かどうかを判定
+    const shouldDisableHideUnchanged = diffEditor && viewMode !== "latest" && creatingAtLine != null;
+    const shouldEnableHideUnchanged = diffEditor && viewMode !== "latest" && creatingAtLine == null;
 
-    const items = feedbackItems ?? [];
-    const resolved = resolvedItems ?? [];
-    const allItems = [
-      ...items.map((i) => ({ ...i, _resolved: false })),
-      ...resolved.map((i) => ({ ...i, _resolved: true })),
-    ];
-    const lineItems = allItems.filter((f) => f.line_number > 0);
+    // ViewZone構築ロジックを関数化
+    const buildViewZones = () => {
+      // Cleanup previous observers
+      for (const obs of observersRef.current) obs.disconnect();
+      observersRef.current = [];
 
-    // Clear existing ViewZones
-    const staleRoots = [...viewZoneRootsRef.current];
-    editor.changeViewZones((accessor) => {
-      for (const ref of zoneRefsRef.current) {
-        accessor.removeZone(ref.id);
-      }
-      zoneRefsRef.current = [];
-    });
-    viewZoneRootsRef.current = [];
-    if (staleRoots.length > 0) {
-      queueMicrotask(() => {
-        for (const root of staleRoots) root.unmount();
+      const items = feedbackItems ?? [];
+      const resolved = resolvedItems ?? [];
+      const allItems = [
+        ...items.map((i) => ({ ...i, _resolved: false })),
+        ...resolved.map((i) => ({ ...i, _resolved: true })),
+      ];
+      const lineItems = allItems.filter((f) => f.line_number > 0);
+
+      // Clear existing ViewZones
+      const staleRoots = [...viewZoneRootsRef.current];
+      editor.changeViewZones((accessor) => {
+        for (const ref of zoneRefsRef.current) {
+          accessor.removeZone(ref.id);
+        }
+        zoneRefsRef.current = [];
       });
-    }
-
-    const sorted = [...lineItems].sort((a, b) => a.line_number - b.line_number);
-
-    // Collect zone entries: existing items + creating zone
-    type LocalZoneEntry = {
-      itemId: string | null; // null for creating zone
-      afterLine: number;
-      estimatedHeight: number;
-      render: (domNode: HTMLDivElement) => Root;
-    };
-
-    const zoneEntries: LocalZoneEntry[] = [];
-    // Collapsed items use Decoration (icon in gutter) instead of ViewZone
-    const collapsedDecorations: Monaco.editor.IModelDeltaDecoration[] = [];
-
-    for (const item of sorted) {
-      const afterLine = item.line_number_end ?? item.line_number;
-      const status: "draft" | "submitted" | "resolved" = item._resolved
-        ? "resolved"
-        : item.submitted_at
-          ? "submitted"
-          : "draft";
-      const isDraft = status === "draft";
-      const itemId = `${item.file_path}:${item.line_number}:${item.line_number_end ?? ""}`;
-      const isCollapsed = !isDraft && (collapsedCommentIdsRef.current?.has(itemId) ?? false);
-
-      if (isCollapsed) {
-        // Collapsed: show icon in gutter instead of ViewZone
-        const statusClass = status === "resolved" ? "scrutiny-comment-resolved" : "scrutiny-comment-submitted";
-        collapsedDecorations.push({
-          range: new monaco.Range(item.line_number, 1, item.line_number, 1),
-          options: {
-            glyphMarginClassName: `scrutiny-comment-icon ${statusClass}`,
-            glyphMarginHoverMessage: { value: `**${status === "resolved" ? "完了" : "送信済"}**: ${(item.comment ?? "").slice(0, 100)}${(item.comment ?? "").length > 100 ? "..." : ""}` },
-          },
+      viewZoneRootsRef.current = [];
+      if (staleRoots.length > 0) {
+        queueMicrotask(() => {
+          for (const root of staleRoots) root.unmount();
         });
-      } else {
-        // Expanded: use ViewZone
-        const commentLen = item.comment?.length ?? 0;
-        const commentLines = Math.ceil(commentLen / 70) + 1;
-        const estimatedHeight = isDraft ? 140 : Math.max(44, commentLines * 18 + 28);
+      }
 
+      const sorted = [...lineItems].sort((a, b) => a.line_number - b.line_number);
+
+      // Collect zone entries: existing items + creating zone
+      type LocalZoneEntry = {
+        itemId: string | null; // null for creating zone
+        afterLine: number;
+        estimatedHeight: number;
+        render: (domNode: HTMLDivElement) => Root;
+      };
+
+      const zoneEntries: LocalZoneEntry[] = [];
+      // Collapsed items use Decoration (icon in gutter) instead of ViewZone
+      const collapsedDecorations: Monaco.editor.IModelDeltaDecoration[] = [];
+
+      for (const item of sorted) {
+        const afterLine = item.line_number_end ?? item.line_number;
+        const status: "draft" | "submitted" | "resolved" = item._resolved
+          ? "resolved"
+          : item.submitted_at
+            ? "submitted"
+            : "draft";
+        const isDraft = status === "draft";
+        const itemId = `${item.file_path}:${item.line_number}:${item.line_number_end ?? ""}`;
+        const isCollapsed = !isDraft && (collapsedCommentIdsRef.current?.has(itemId) ?? false);
+
+        if (isCollapsed) {
+          // Collapsed: show icon in gutter instead of ViewZone
+          const statusClass = status === "resolved" ? "scrutiny-comment-resolved" : "scrutiny-comment-submitted";
+          collapsedDecorations.push({
+            range: new monaco.Range(item.line_number, 1, item.line_number, 1),
+            options: {
+              glyphMarginClassName: `scrutiny-comment-icon ${statusClass}`,
+              glyphMarginHoverMessage: { value: `**${status === "resolved" ? "完了" : "送信済"}**: ${(item.comment ?? "").slice(0, 100)}${(item.comment ?? "").length > 100 ? "..." : ""}` },
+            },
+          });
+        } else {
+          // Expanded: use ViewZone
+          const commentLen = item.comment?.length ?? 0;
+          const commentLines = Math.ceil(commentLen / 70) + 1;
+          const estimatedHeight = isDraft ? 140 : Math.max(44, commentLines * 18 + 28);
+
+          zoneEntries.push({
+            itemId,
+            afterLine,
+            estimatedHeight,
+            render: (domNode) => {
+              const root = createRoot(domNode);
+              root.render(
+                <InlineComment
+                  item={item}
+                  status={status}
+                  filePath={item.file_path}
+                  lineNumber={item.line_number}
+                  lineNumberEnd={item.line_number_end}
+                  onSave={async (comment) => {
+                    await onSaveCommentRef.current?.(
+                      item.file_path,
+                      item.line_number,
+                      item.line_number_end,
+                      comment
+                    );
+                  }}
+                  onResolve={() => onResolveItemRef.current?.(item)}
+                  onDelete={status === "draft" ? () => onDeleteItemRef.current?.(item) : undefined}
+                  onUnresolve={status === "resolved" ? () => onUnresolveItemRef.current?.(item) : undefined}
+                  onToggleCollapse={!isDraft ? () => onToggleCommentCollapseRef.current?.(itemId) : undefined}
+                />
+              );
+              return root;
+            },
+          });
+        }
+      }
+
+      // Update collapsed icon decorations
+      const nextCollapsedIds = editor.deltaDecorations(collapsedIconDecorationIdsRef.current, collapsedDecorations);
+      collapsedIconDecorationIdsRef.current = nextCollapsedIds;
+
+      // Add creating zone if active
+      // shouldAutoFocus: creatingAtLine が新しく設定された時のみ true
+      const shouldAutoFocus = creatingAtLine != null && prevCreatingAtLineRef.current == null;
+      if (creatingAtLine != null) {
+        const afterLine = creatingAtLineEnd ?? creatingAtLine;
         zoneEntries.push({
-          itemId,
+          itemId: null, // creating zone has no itemId
           afterLine,
-          estimatedHeight,
+          estimatedHeight: 140,
           render: (domNode) => {
             const root = createRoot(domNode);
             root.render(
               <InlineComment
-                item={item}
-                status={status}
-                filePath={item.file_path}
-                lineNumber={item.line_number}
-                lineNumberEnd={item.line_number_end}
+                isNew
+                shouldAutoFocus={shouldAutoFocus}
+                filePath={filePathRef.current}
+                lineNumber={creatingAtLine}
+                lineNumberEnd={creatingAtLineEnd ?? undefined}
                 onSave={async (comment) => {
                   await onSaveCommentRef.current?.(
-                    item.file_path,
-                    item.line_number,
-                    item.line_number_end,
+                    filePathRef.current,
+                    creatingAtLine,
+                    creatingAtLineEnd ?? undefined,
                     comment
                   );
                 }}
-                onResolve={() => onResolveItemRef.current?.(item)}
-                onDelete={status === "draft" ? () => onDeleteItemRef.current?.(item) : undefined}
-                onUnresolve={status === "resolved" ? () => onUnresolveItemRef.current?.(item) : undefined}
-                onToggleCollapse={!isDraft ? () => onToggleCommentCollapseRef.current?.(itemId) : undefined}
+                onCancel={() => onCancelCommentRef.current?.()}
               />
             );
             return root;
           },
         });
       }
-    }
+      // prevCreatingAtLineRef を更新
+      prevCreatingAtLineRef.current = creatingAtLine;
 
-    // Update collapsed icon decorations
-    const nextCollapsedIds = editor.deltaDecorations(collapsedIconDecorationIdsRef.current, collapsedDecorations);
-    collapsedIconDecorationIdsRef.current = nextCollapsedIds;
+      // Sort all entries by line
+      zoneEntries.sort((a, b) => a.afterLine - b.afterLine);
 
-    // Add creating zone if active
-    // shouldAutoFocus: creatingAtLine が新しく設定された時のみ true
-    const shouldAutoFocus = creatingAtLine != null && prevCreatingAtLineRef.current == null;
-    if (creatingAtLine != null) {
-      const afterLine = creatingAtLineEnd ?? creatingAtLine;
-      zoneEntries.push({
-        itemId: null, // creating zone has no itemId
-        afterLine,
-        estimatedHeight: 140,
-        render: (domNode) => {
-          const root = createRoot(domNode);
-          root.render(
-            <InlineComment
-              isNew
-              shouldAutoFocus={shouldAutoFocus}
-              filePath={filePathRef.current}
-              lineNumber={creatingAtLine}
-              lineNumberEnd={creatingAtLineEnd ?? undefined}
-              onSave={async (comment) => {
-                await onSaveCommentRef.current?.(
-                  filePathRef.current,
-                  creatingAtLine,
-                  creatingAtLineEnd ?? undefined,
-                  comment
-                );
-              }}
-              onCancel={() => onCancelCommentRef.current?.()}
-            />
-          );
-          return root;
-        },
-      });
-    }
-    // prevCreatingAtLineRef を更新
-    prevCreatingAtLineRef.current = creatingAtLine;
+      // 差分更新用マップをクリア（全再構築なので）
+      zoneByItemIdRef.current.clear();
 
-    // Sort all entries by line
-    zoneEntries.sort((a, b) => a.afterLine - b.afterLine);
+      editor.changeViewZones((accessor) => {
+        const newZoneRefs: ZoneRef[] = [];
+        const newRoots: Root[] = [];
+        for (const entry of zoneEntries) {
+          const domNode = document.createElement("div");
+          domNode.style.zIndex = "10";
+          domNode.style.position = "relative";
+          domNode.style.pointerEvents = "auto";
 
-    // 差分更新用マップをクリア（全再構築なので）
-    zoneByItemIdRef.current.clear();
+          // stopPropagation で editor へのイベント伝播を防止
+          // (suppressMouseDown: false なので preventDefault は呼ばれず textarea の focus が正常動作)
+          domNode.addEventListener("mousedown", (e) => e.stopPropagation());
 
-    editor.changeViewZones((accessor) => {
-      const newZoneRefs: ZoneRef[] = [];
-      const newRoots: Root[] = [];
-      for (const entry of zoneEntries) {
-        const domNode = document.createElement("div");
-        domNode.style.zIndex = "10";
-        domNode.style.position = "relative";
-        domNode.style.pointerEvents = "auto";
+          const zoneConfig: Monaco.editor.IViewZone = {
+            afterLineNumber: entry.afterLine,
+            heightInPx: entry.estimatedHeight,
+            domNode,
+          };
+          const zoneId = accessor.addZone(zoneConfig);
 
-        // stopPropagation で editor へのイベント伝播を防止
-        // (suppressMouseDown: false なので preventDefault は呼ばれず textarea の focus が正常動作)
-        domNode.addEventListener("mousedown", (e) => e.stopPropagation());
+          const zoneRef: ZoneRef = { id: zoneId, config: zoneConfig, domNode };
+          newZoneRefs.push(zoneRef);
 
-        const zoneConfig: Monaco.editor.IViewZone = {
-          afterLineNumber: entry.afterLine,
-          heightInPx: entry.estimatedHeight,
-          domNode,
-        };
-        const zoneId = accessor.addZone(zoneConfig);
+          const root = entry.render(domNode);
+          newRoots.push(root);
 
-        const zoneRef: ZoneRef = { id: zoneId, config: zoneConfig, domNode };
-        newZoneRefs.push(zoneRef);
+          // ResizeObserver: 子要素のサイズ変化を監視して高さを更新
+          const observer = new ResizeObserver(() => {
+            const child = domNode.firstElementChild as HTMLElement | null;
+            const height = child?.offsetHeight ?? 0;
+            if (!height || height <= 0) return;
+            const rounded = Math.ceil(height);
+            if (Math.abs(rounded - (zoneRef.config.heightInPx ?? 0)) < 2) return;
+            zoneRef.config.heightInPx = rounded;
+            editor.changeViewZones((acc) => acc.layoutZone(zoneRef.id));
+          });
 
-        const root = entry.render(domNode);
-        newRoots.push(root);
+          // MutationObserver: React が子要素を追加したら ResizeObserver を開始
+          const mutationObserver = new MutationObserver(() => {
+            const child = domNode.firstElementChild;
+            if (child) {
+              observer.observe(child);
+              mutationObserver.disconnect();
+            }
+          });
+          mutationObserver.observe(domNode, { childList: true });
+          observersRef.current.push(observer);
 
-        // ResizeObserver: 子要素のサイズ変化を監視して高さを更新
-        const observer = new ResizeObserver(() => {
-          const child = domNode.firstElementChild as HTMLElement | null;
-          const height = child?.offsetHeight ?? 0;
-          if (!height || height <= 0) return;
-          const rounded = Math.ceil(height);
-          if (Math.abs(rounded - (zoneRef.config.heightInPx ?? 0)) < 2) return;
-          zoneRef.config.heightInPx = rounded;
-          editor.changeViewZones((acc) => acc.layoutZone(zoneRef.id));
-        });
-
-        // MutationObserver: React が子要素を追加したら ResizeObserver を開始
-        const mutationObserver = new MutationObserver(() => {
-          const child = domNode.firstElementChild;
-          if (child) {
-            observer.observe(child);
-            mutationObserver.disconnect();
+          // 差分更新用マップに登録（itemId がある場合のみ）
+          if (entry.itemId) {
+            zoneByItemIdRef.current.set(entry.itemId, { zoneRef, root, observer });
           }
-        });
-        mutationObserver.observe(domNode, { childList: true });
-        observersRef.current.push(observer);
-
-        // 差分更新用マップに登録（itemId がある場合のみ）
-        if (entry.itemId) {
-          zoneByItemIdRef.current.set(entry.itemId, { zoneRef, root, observer });
         }
-      }
-      zoneRefsRef.current = newZoneRefs;
-      viewZoneRootsRef.current = newRoots;
-    });
+        zoneRefsRef.current = newZoneRefs;
+        viewZoneRootsRef.current = newRoots;
+      });
 
-    // 現在の collapsed 状態を記録
-    prevCollapsedIdsRef.current = new Set(collapsedCommentIdsRef.current ?? []);
+      // 現在の collapsed 状態を記録
+      prevCollapsedIdsRef.current = new Set(collapsedCommentIdsRef.current ?? []);
+    };
 
-    return () => {
+    // クリーンアップ関数
+    const cleanup = () => {
       for (const obs of observersRef.current) obs.disconnect();
       observersRef.current = [];
       const roots = [...viewZoneRootsRef.current];
@@ -469,11 +479,44 @@ export function MonacoDiffViewer({
           for (const root of roots) root.unmount();
         });
       }
+      // hideUnchangedRegions を再有効化
+      if (diffEditorRef.current && viewMode !== "latest") {
+        diffEditorRef.current.updateOptions({
+          hideUnchangedRegions: { enabled: true },
+        });
+      }
     };
-  }, [feedbackItems, resolvedItems, editorReady, creatingAtLine, creatingAtLineEnd, collapsedIdsKey]);
+
+    // hideUnchangedRegions を変更する場合は、変更後に1フレーム待機してからViewZoneを構築
+    if (shouldDisableHideUnchanged || shouldEnableHideUnchanged) {
+      diffEditor!.updateOptions({
+        hideUnchangedRegions: { enabled: creatingAtLine == null },
+      });
+
+      // Monacoのビュー再構築完了を待ってからViewZoneを構築
+      const rafId = requestAnimationFrame(() => {
+        buildViewZones();
+
+        // コメント作成対象行を表示領域内に収める
+        if (creatingAtLine != null) {
+          editor.revealLineInCenter(creatingAtLine);
+        }
+      });
+
+      return () => {
+        cancelAnimationFrame(rafId);
+        cleanup();
+      };
+    } else {
+      // hideUnchangedRegions の変更が不要な場合は即座にViewZoneを構築
+      buildViewZones();
+      return cleanup;
+    }
+  }, [feedbackItems, resolvedItems, editorReady, creatingAtLine, creatingAtLineEnd, collapsedIdsKey, viewMode]);
 
   const handleMount = useCallback(
     (editor: Monaco.editor.IDiffEditor, monaco: typeof Monaco) => {
+      diffEditorRef.current = editor;
       const originalEditor = editor.getOriginalEditor();
       const modifiedEditor = editor.getModifiedEditor();
       modifiedEditorRef.current = modifiedEditor;
@@ -581,6 +624,7 @@ export function MonacoDiffViewer({
         wrapper.removeEventListener("mousedown", onWrapperMouseDown, useCapture);
         updateRangeHighlight(null, null);
         rangeStartLineRef.current = null;
+        diffEditorRef.current = null;
         modifiedEditorRef.current = null;
         originalEditorRef.current = null;
         monacoRef.current = null;
