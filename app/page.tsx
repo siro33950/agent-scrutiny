@@ -18,6 +18,8 @@ import { FileTreeSidebar } from "@/app/components/FileTree/FileTreeSidebar";
 import { DiffViewerPanel } from "@/app/components/DiffViewer/DiffViewerPanel";
 import { FeedbackPanel } from "@/app/components/Feedback/FeedbackPanel";
 import { ConfirmDialog } from "@/app/components/ConfirmDialog";
+import { FileTreeSkeleton } from "@/app/components/Skeleton/FileTreeSkeleton";
+import { EditorSkeleton } from "@/app/components/Skeleton/EditorSkeleton";
 
 export default function Home() {
   const { targets, selectedTarget, setSelectedTarget, effectiveTarget } = useTargets();
@@ -306,6 +308,15 @@ export default function Home() {
       )}
 
       <main className="flex min-h-0 flex-1 overflow-hidden">
+        {loading && (
+          <>
+            <FileTreeSkeleton />
+            <div className="min-h-0 min-w-0 flex-1 flex flex-col overflow-hidden bg-zinc-50 dark:bg-zinc-950">
+              <EditorSkeleton />
+            </div>
+          </>
+        )}
+
         {!error && !loading && files.length > 0 && (
           <FileTreeSidebar
             fileTree={fileTree}
