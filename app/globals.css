@@ -3,6 +3,9 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --toast-bg: #ffffff;
+  --toast-color: #18181b;
+  --toast-border: #e4e4e7;
 }
 
 @theme inline {
@@ -16,6 +19,9 @@
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+    --toast-bg: #27272a;
+    --toast-color: #fafafa;
+    --toast-border: #3f3f46;
   }
 }
 

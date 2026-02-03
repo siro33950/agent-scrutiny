@@ -13,8 +13,8 @@ import { useFileContent } from "@/app/hooks/useFileContent";
 import { useViewed } from "@/app/hooks/useViewed";
 import { useInlineComment } from "@/app/hooks/useInlineComment";
 import { Header } from "@/app/components/Header/Header";
-import { Banner } from "@/app/components/Banner";
 import { FileTreeSidebar } from "@/app/components/FileTree/FileTreeSidebar";
+import toast from "react-hot-toast";
 import { DiffViewerPanel } from "@/app/components/DiffViewer/DiffViewerPanel";
 import { FeedbackPanel } from "@/app/components/Feedback/FeedbackPanel";
 import { ConfirmDialog } from "@/app/components/ConfirmDialog";
@@ -32,9 +32,6 @@ export default function Home() {
   const [treeViewMode, setTreeViewMode] = useState<"changed" | "full">("full");
   const [feedbackPanelOpen, setFeedbackPanelOpen] = useState(false);
   const [feedbackFilter, setFeedbackFilter] = useState<"all" | "draft" | "submitted" | "resolved">("all");
-  const [submitStatus, setSubmitStatus] = useState<"idle" | "success" | "error">("idle");
-  const [submitMessage, setSubmitMessage] = useState("");
-  const [dismissBanner, setDismissBanner] = useState<string | null>(null);
   const [actionType, setActionType] = useState<"submit" | "approve">("submit");
   const [viewMode, setViewMode] = useState<ViewMode>("inline");
   const [confirmDeleteItem, setConfirmDeleteItem] = useState<FeedbackItem | null>(null);
@@ -50,7 +47,7 @@ export default function Home() {
     clearTabs();
     clearCache();
     setExpandedFolders(new Set());
-    setDismissBanner(null);
+    toast.dismiss();
     inlineComment.cancel();
     fetchFiles(effectiveTarget, diffBase);
   }, [selectedTarget]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -105,9 +102,7 @@ export default function Home() {
   }, [currentPath, inlineComment]);
 
   const handleAction = useCallback(async () => {
-    setSubmitStatus("idle");
-    setSubmitMessage("");
-    setDismissBanner(null);
+    toast.dismiss("action");
     try {
       if (actionType === "submit") {
         const res = await fetch("/api/submit", {
@@ -117,12 +112,10 @@ export default function Home() {
         });
         const data = await res.json();
         if (res.ok) {
-          setSubmitStatus("success");
-          setSubmitMessage(data.message ?? "送信しました");
+          toast.success(data.message ?? "送信しました", { id: "action" });
           await fetchFeedback();
         } else {
-          setSubmitStatus("error");
-          setSubmitMessage(data.error ?? "送信に失敗しました");
+          toast.error(data.error ?? "送信に失敗しました", { id: "action" });
         }
       } else {
         const res = await fetch("/api/approve", {
@@ -132,23 +125,18 @@ export default function Home() {
         });
         const data = await res.json();
         if (res.ok) {
-          setSubmitStatus("success");
-          setSubmitMessage(data.message ?? "コミットを依頼しました");
+          toast.success(data.message ?? "コミットを依頼しました", { id: "action" });
         } else {
-          setSubmitStatus("error");
-          setSubmitMessage(data.error ?? "コミット依頼に失敗しました");
+          toast.error(data.error ?? "コミット依頼に失敗しました", { id: "action" });
         }
       }
     } catch (e) {
-      setSubmitStatus("error");
-      setSubmitMessage(e instanceof Error ? e.message : "送信に失敗しました");
+      toast.error(e instanceof Error ? e.message : "送信に失敗しました", { id: "action" });
     }
   }, [actionType, effectiveTarget, fetchFeedback]);
 
   const handleSubmitAll = useCallback(async () => {
-    setSubmitStatus("idle");
-    setSubmitMessage("");
-    setDismissBanner(null);
+    toast.dismiss("action");
     try {
       const res = await fetch("/api/submit", {
         method: "POST",
@@ -157,16 +145,13 @@ export default function Home() {
       });
       const data = await res.json();
       if (res.ok) {
-        setSubmitStatus("success");
-        setSubmitMessage(data.message ?? "送信しました");
+        toast.success(data.message ?? "送信しました", { id: "action" });
         await fetchFeedback();
       } else {
-        setSubmitStatus("error");
-        setSubmitMessage(data.error ?? "送信に失敗しました");
+        toast.error(data.error ?? "送信に失敗しました", { id: "action" });
       }
     } catch (e) {
-      setSubmitStatus("error");
-      setSubmitMessage(e instanceof Error ? e.message : "送信に失敗しました");
+      toast.error(e instanceof Error ? e.message : "送信に失敗しました", { id: "action" });
     }
   }, [effectiveTarget, fetchFeedback]);
 
@@ -200,7 +185,7 @@ export default function Home() {
   }, []);
 
   const handleRefresh = useCallback(() => {
-    setDismissBanner(null);
+    toast.dismiss();
     setExpandedFolders(new Set());
     fetchFiles(effectiveTarget, diffBase);
   }, [fetchFiles, effectiveTarget, diffBase]);
@@ -295,15 +280,6 @@ export default function Home() {
         onActionTypeChange={setActionType}
         onAction={handleAction}
       />
-
-      {(error || submitStatus !== "idle") && !dismissBanner && (
-        <Banner
-          error={error}
-          submitStatus={submitStatus}
-          submitMessage={submitMessage}
-          onDismiss={setDismissBanner}
-        />
-      )}
 
       <main className="flex min-h-0 flex-1 overflow-hidden">
         {!error && !loading && files.length > 0 && (
