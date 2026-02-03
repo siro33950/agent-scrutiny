@@ -46,11 +46,12 @@ class FileWatcherManager {
       entry.watcher.close();
       this.watchers.delete(targetDir);
 
-      const timerKey = targetDir;
-      const timer = this.debounceTimers.get(timerKey);
-      if (timer) {
-        clearTimeout(timer);
-        this.debounceTimers.delete(timerKey);
+      // targetDirに紐づく全てのデバウンスタイマーをクリア
+      for (const [key, timer] of this.debounceTimers) {
+        if (key.startsWith(`${targetDir}:`)) {
+          clearTimeout(timer);
+          this.debounceTimers.delete(key);
+        }
       }
     }
   }
@@ -59,8 +60,9 @@ class FileWatcherManager {
    * chokidar watcherを作成
    */
   private createWatcher(targetDir: string): WatcherEntry {
+    const escapeRegExp = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const ignoredPatterns = Array.from(SKIP_DIRS).map(
-      (dir) => new RegExp(`(^|[/\\\\])${dir}([/\\\\]|$)`)
+      (dir) => new RegExp(`(^|[/\\\\])${escapeRegExp(dir)}([/\\\\]|$)`)
     );
 
     const watcher = chokidar.watch(targetDir, {

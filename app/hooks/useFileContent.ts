@@ -11,6 +11,7 @@ export function useFileContent(
   >({});
   const fetchingPathsRef = useRef<Set<string>>(new Set());
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const prevRefreshTriggerRef = useRef(0);
 
   const clearCache = useCallback(() => {
     setFileContentCache({});
@@ -23,8 +24,10 @@ export function useFileContent(
 
   useEffect(() => {
     const activePath = openTabs[activeTabIndex];
-    // refreshTriggerが変わったときは開いているタブをすべて再フェッチ
-    const pathsToRefresh = refreshTrigger > 0 ? openTabs : [];
+    // refreshTriggerが変わったときのみ開いているタブをすべて再フェッチ
+    const shouldRefreshAll = refreshTrigger !== prevRefreshTriggerRef.current;
+    prevRefreshTriggerRef.current = refreshTrigger;
+    const pathsToRefresh = shouldRefreshAll ? openTabs : [];
     const toFetch = [
       ...new Set(
         [activePath, ...pathsToRefresh, ...openTabs.filter((path) => !(path in fileContentCache))].filter(Boolean)
