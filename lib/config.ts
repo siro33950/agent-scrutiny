@@ -1,12 +1,21 @@
 import { readFileSync } from "fs";
 import path from "path";
 
+export interface ScrutinyHooks {
+  /** Submit前に実行するコマンドの配列 */
+  preSubmit?: string[];
+  /** Submit後に実行するコマンドの配列 */
+  postSubmit?: string[];
+}
+
 export interface ScrutinyConfig {
   /** ターゲット名 → projectRoot からの相対パス。必須。 */
   targets: Record<string, string>;
   tmuxSession?: string;
   /** 起動時にエージェント用 tmux セッション内で実行するコマンド（例: aider, claude）。未設定時は何も起動しない。 */
   agentCommand?: string;
+  /** Submit前後に実行するHooksの設定 */
+  hooks?: ScrutinyHooks;
 }
 
 const defaultConfig: Omit<ScrutinyConfig, "targets"> & {

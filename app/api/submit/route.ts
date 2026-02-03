@@ -2,8 +2,37 @@ import { randomUUID } from "crypto";
 import { spawnSync } from "child_process";
 import path from "path";
 import { NextResponse } from "next/server";
-import { loadConfig, getTargetNames, getTargetDir } from "@/lib/config";
+import { loadConfig, getTargetNames, getTargetDir, type ScrutinyConfig } from "@/lib/config";
 import { readFeedback, writeFeedback, writeFeedbackForAgent } from "@/lib/feedback";
+
+/**
+ * Hooks（preSubmit/postSubmit）を実行する。
+ * 各コマンドはtargetDir内で実行され、失敗してもログのみで処理を継続する。
+ */
+function executeHooks(commands: string[] | undefined, targetDir: string, phase: "preSubmit" | "postSubmit"): void {
+  if (!commands || commands.length === 0) return;
+  for (const cmd of commands) {
+    if (!cmd || typeof cmd !== "string") continue;
+    try {
+      const result = spawnSync(cmd, {
+        cwd: targetDir,
+        shell: true,
+        encoding: "utf-8",
+        timeout: 30000,
+        maxBuffer: 1024 * 1024,
+      });
+      if (result.error) {
+        console.error(`[${phase}] Hook failed: ${cmd}`, result.error.message);
+      } else if (result.status !== 0) {
+        console.error(`[${phase}] Hook exited with status ${result.status}: ${cmd}`, result.stderr);
+      } else {
+        console.log(`[${phase}] Hook executed: ${cmd}`);
+      }
+    } catch (e) {
+      console.error(`[${phase}] Hook exception: ${cmd}`, e);
+    }
+  }
+}
 
 /**
  * tmux セッション名用に target 名を正規化する（start-scrutiny.sh と同じルール）。
@@ -48,6 +77,9 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
+
+  // preSubmit Hooks を実行
+  executeHooks(config.hooks?.preSubmit, targetDir, "preSubmit");
 
   const itemsWithAbsolutePath = data.items.map((item) => ({
     ...item,
@@ -122,6 +154,9 @@ export async function POST(request: Request) {
     item.submitted_at ? item : { ...item, submitted_at: submittedAt }
   );
   writeFeedback(targetDir, itemsWithSubmittedAt);
+
+  // postSubmit Hooks を実行
+  executeHooks(config.hooks?.postSubmit, targetDir, "postSubmit");
 
   return NextResponse.json({
     ok: true,
