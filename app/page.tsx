@@ -18,6 +18,7 @@ import { FileTreeSidebar } from "@/app/components/FileTree/FileTreeSidebar";
 import { DiffViewerPanel } from "@/app/components/DiffViewer/DiffViewerPanel";
 import { FeedbackPanel } from "@/app/components/Feedback/FeedbackPanel";
 import { ConfirmDialog } from "@/app/components/ConfirmDialog";
+import { ErrorBoundary } from "@/app/components/ErrorBoundary";
 
 export default function Home() {
   const { targets, selectedTarget, setSelectedTarget, effectiveTarget } = useTargets();
@@ -307,29 +308,31 @@ export default function Home() {
 
       <main className="flex min-h-0 flex-1 overflow-hidden">
         {!error && !loading && files.length > 0 && (
-          <FileTreeSidebar
-            fileTree={fileTree}
-            changedFilesTree={changedFilesTree}
-            changedFilesCount={changedFiles.length}
-            openTabs={openTabs}
-            activeTabIndex={activeTabIndex}
-            modifiedSet={modifiedSet}
-            untrackedSet={untrackedSet}
-            expandedFolders={expandedFolders}
-            treeViewMode={treeViewMode}
-            loading={loading}
-            feedbackCountByFile={feedbackCountByFile}
-            diffStats={diffStats}
-            changeTypes={changeTypes}
-            viewedFiles={viewedFiles}
-            onSelectFile={selectFile}
-            onToggleFolder={toggleFolder}
-            onSetTreeViewMode={setTreeViewMode}
-            onExpandAll={() => setExpandedFolders(new Set(collectFolderPaths(treeViewMode === "changed" ? changedFilesTree : fileTree)))}
-            onCollapseAll={() => setExpandedFolders(new Set())}
-            onRefresh={handleRefresh}
-            onToggleViewed={toggleViewed}
-          />
+          <ErrorBoundary name="ファイルツリー">
+            <FileTreeSidebar
+              fileTree={fileTree}
+              changedFilesTree={changedFilesTree}
+              changedFilesCount={changedFiles.length}
+              openTabs={openTabs}
+              activeTabIndex={activeTabIndex}
+              modifiedSet={modifiedSet}
+              untrackedSet={untrackedSet}
+              expandedFolders={expandedFolders}
+              treeViewMode={treeViewMode}
+              loading={loading}
+              feedbackCountByFile={feedbackCountByFile}
+              diffStats={diffStats}
+              changeTypes={changeTypes}
+              viewedFiles={viewedFiles}
+              onSelectFile={selectFile}
+              onToggleFolder={toggleFolder}
+              onSetTreeViewMode={setTreeViewMode}
+              onExpandAll={() => setExpandedFolders(new Set(collectFolderPaths(treeViewMode === "changed" ? changedFilesTree : fileTree)))}
+              onCollapseAll={() => setExpandedFolders(new Set())}
+              onRefresh={handleRefresh}
+              onToggleViewed={toggleViewed}
+            />
+          </ErrorBoundary>
         )}
 
         <div className="min-h-0 min-w-0 flex-1 flex flex-col overflow-hidden bg-zinc-50 dark:bg-zinc-950">
@@ -368,33 +371,35 @@ export default function Home() {
           )}
 
           {!error && files.length > 0 && (
-            <DiffViewerPanel
-              openTabs={openTabs}
-              activeTabIndex={activeTabIndex}
-              currentPath={currentPath}
-              fileContentCache={fileContentCache}
-              feedbackItems={feedbackItems}
-              resolvedItems={visibleResolvedItems}
-              highlightLineIds={highlightLineIds}
-              isDark={isDark}
-              viewMode={viewMode}
-              changedFiles={changedFiles}
-              creatingAtLine={creatingAtLine}
-              creatingAtLineEnd={creatingAtLineEnd}
-              onSelectTab={setActiveTabIndex}
-              onCloseTab={closeTab}
-              onWholeFileFeedback={handleWholeFileFeedback}
-              onViewModeChange={setViewMode}
-              onPrevFile={handlePrevFile}
-              onNextFile={handleNextFile}
-              onSaveComment={inlineComment.save}
-              onCancelComment={inlineComment.cancel}
-              onResolveItem={inlineComment.resolve}
-              onDeleteItem={handleDeleteItem}
-              onUnresolveItem={inlineComment.unresolve}
-              onCreateAtLine={inlineComment.startCreate}
-              onCursorLineChanged={handleCursorLineChanged}
-            />
+            <ErrorBoundary name="Diffビューア">
+              <DiffViewerPanel
+                openTabs={openTabs}
+                activeTabIndex={activeTabIndex}
+                currentPath={currentPath}
+                fileContentCache={fileContentCache}
+                feedbackItems={feedbackItems}
+                resolvedItems={visibleResolvedItems}
+                highlightLineIds={highlightLineIds}
+                isDark={isDark}
+                viewMode={viewMode}
+                changedFiles={changedFiles}
+                creatingAtLine={creatingAtLine}
+                creatingAtLineEnd={creatingAtLineEnd}
+                onSelectTab={setActiveTabIndex}
+                onCloseTab={closeTab}
+                onWholeFileFeedback={handleWholeFileFeedback}
+                onViewModeChange={setViewMode}
+                onPrevFile={handlePrevFile}
+                onNextFile={handleNextFile}
+                onSaveComment={inlineComment.save}
+                onCancelComment={inlineComment.cancel}
+                onResolveItem={inlineComment.resolve}
+                onDeleteItem={handleDeleteItem}
+                onUnresolveItem={inlineComment.unresolve}
+                onCreateAtLine={inlineComment.startCreate}
+                onCursorLineChanged={handleCursorLineChanged}
+              />
+            </ErrorBoundary>
           )}
 
           <FeedbackPanel
