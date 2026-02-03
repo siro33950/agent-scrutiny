@@ -1,13 +1,70 @@
+import { type ConnectionState } from "@/app/hooks/useFileWatcher";
+
 interface FileTreeToolbarProps {
   loading: boolean;
+  autoReloadEnabled: boolean;
+  connectionState: ConnectionState;
   onExpandAll: () => void;
   onCollapseAll: () => void;
   onRefresh: () => void;
+  onAutoReloadToggle: () => void;
 }
 
-export function FileTreeToolbar({ loading, onExpandAll, onCollapseAll, onRefresh }: FileTreeToolbarProps) {
+function getConnectionStateColor(state: ConnectionState, enabled: boolean): string {
+  if (!enabled) return "text-zinc-400 dark:text-zinc-500";
+  switch (state) {
+    case "connected":
+      return "text-green-500 dark:text-green-400";
+    case "connecting":
+      return "text-yellow-500 dark:text-yellow-400";
+    case "error":
+      return "text-red-500 dark:text-red-400";
+    default:
+      return "text-zinc-400 dark:text-zinc-500";
+  }
+}
+
+function getConnectionStateLabel(state: ConnectionState, enabled: boolean): string {
+  if (!enabled) return "自動更新: OFF";
+  switch (state) {
+    case "connected":
+      return "自動更新: 接続中";
+    case "connecting":
+      return "自動更新: 再接続中...";
+    case "error":
+      return "自動更新: エラー";
+    default:
+      return "自動更新: 切断";
+  }
+}
+
+export function FileTreeToolbar({
+  loading,
+  autoReloadEnabled,
+  connectionState,
+  onExpandAll,
+  onCollapseAll,
+  onRefresh,
+  onAutoReloadToggle,
+}: FileTreeToolbarProps) {
+  const stateColor = getConnectionStateColor(connectionState, autoReloadEnabled);
+  const stateLabel = getConnectionStateLabel(connectionState, autoReloadEnabled);
+
   return (
     <div className="flex shrink-0 items-center gap-0.5 border-t border-zinc-200 px-2 py-1.5 dark:border-zinc-800">
+      <button
+        type="button"
+        onClick={onAutoReloadToggle}
+        className={`rounded p-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800 ${stateColor}`}
+        title={stateLabel}
+        aria-label={stateLabel}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden>
+          <circle cx="12" cy="12" r="3" fill={autoReloadEnabled ? "currentColor" : "none"} />
+          <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+        </svg>
+      </button>
+      <div className="mx-1 h-4 w-px bg-zinc-200 dark:bg-zinc-700" />
       <button
         type="button"
         onClick={onExpandAll}

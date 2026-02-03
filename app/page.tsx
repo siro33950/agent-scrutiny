@@ -14,6 +14,7 @@ import { useViewed } from "@/app/hooks/useViewed";
 import { useInlineComment } from "@/app/hooks/useInlineComment";
 import { useTheme } from "@/app/hooks/useTheme";
 import { useExpandedFolders } from "@/app/hooks/useExpandedFolders";
+import { useFileWatcher } from "@/app/hooks/useFileWatcher";
 import { Header } from "@/app/components/Header/Header";
 import { FileTreeSidebar } from "@/app/components/FileTree/FileTreeSidebar";
 import toast from "react-hot-toast";
@@ -43,7 +44,7 @@ export default function Home() {
   const cursorLineRef = useRef<number>(1);
 
   const { viewedFiles, toggleViewed } = useViewed(effectiveTarget);
-  const { fileContentCache, clearCache } = useFileContent(openTabs, activeTabIndex, effectiveTarget, diffBase);
+  const { fileContentCache, clearCache, refreshOpenTabs } = useFileContent(openTabs, activeTabIndex, effectiveTarget, diffBase);
 
   const prevTargetRef = useRef<string | null>(null);
   const prevDiffBaseRef = useRef<string | null>(null);
@@ -203,8 +204,19 @@ export default function Home() {
   const handleRefresh = useCallback(() => {
     toast.dismiss();
     resetExpandedFolders();
+    clearCache();
     fetchFiles(effectiveTarget, diffBase);
-  }, [fetchFiles, effectiveTarget, diffBase, resetExpandedFolders]);
+  }, [fetchFiles, effectiveTarget, diffBase, resetExpandedFolders, clearCache]);
+
+  const handleFileChange = useCallback(() => {
+    refreshOpenTabs();
+    fetchFiles(effectiveTarget, diffBase, { silent: true });
+  }, [fetchFiles, effectiveTarget, diffBase, refreshOpenTabs]);
+
+  const { autoReloadEnabled, connectionState, toggleAutoReload } = useFileWatcher({
+    target: effectiveTarget,
+    onFileChange: handleFileChange,
+  });
 
   // Prev/Next file navigation
   const handlePrevFile = useCallback(() => {
@@ -314,6 +326,8 @@ export default function Home() {
               diffStats={diffStats}
               changeTypes={changeTypes}
               viewedFiles={viewedFiles}
+              autoReloadEnabled={autoReloadEnabled}
+              connectionState={connectionState}
               onSelectFile={selectFile}
               onToggleFolder={toggleFolder}
               onSetTreeViewMode={setTreeViewMode}
@@ -321,6 +335,7 @@ export default function Home() {
               onCollapseAll={collapseAll}
               onRefresh={handleRefresh}
               onToggleViewed={toggleViewed}
+              onAutoReloadToggle={toggleAutoReload}
             />
           </ErrorBoundary>
         )}

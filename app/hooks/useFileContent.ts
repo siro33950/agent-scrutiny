@@ -10,17 +10,24 @@ export function useFileContent(
     Record<string, { oldContent: string; newContent: string }>
   >({});
   const fetchingPathsRef = useRef<Set<string>>(new Set());
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const clearCache = useCallback(() => {
     setFileContentCache({});
     fetchingPathsRef.current = new Set();
   }, []);
 
+  const refreshOpenTabs = useCallback(() => {
+    setRefreshTrigger((prev) => prev + 1);
+  }, []);
+
   useEffect(() => {
     const activePath = openTabs[activeTabIndex];
+    // refreshTriggerが変わったときは開いているタブをすべて再フェッチ
+    const pathsToRefresh = refreshTrigger > 0 ? openTabs : [];
     const toFetch = [
       ...new Set(
-        [activePath, ...openTabs.filter((path) => !(path in fileContentCache))].filter(Boolean)
+        [activePath, ...pathsToRefresh, ...openTabs.filter((path) => !(path in fileContentCache))].filter(Boolean)
       ),
     ].filter((path) => !fetchingPathsRef.current.has(path));
     if (toFetch.length === 0) return;
@@ -58,7 +65,7 @@ export function useFileContent(
         aborted.add(p);
       }
     };
-  }, [openTabs, activeTabIndex, fileContentCache, effectiveTarget, diffBase]);
+  }, [openTabs, activeTabIndex, fileContentCache, effectiveTarget, diffBase, refreshTrigger]);
 
-  return { fileContentCache, clearCache };
+  return { fileContentCache, clearCache, refreshOpenTabs };
 }
