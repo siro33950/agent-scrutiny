@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { TreeNode } from "@/app/types";
 import type { DiffStat } from "@/app/hooks/useFiles";
+import type { ConnectionState } from "@/app/hooks/useFileWatcher";
 import { FileTreeNodes } from "./FileTreeNodes";
 import { FileTreeToolbar } from "./FileTreeToolbar";
 
@@ -40,6 +41,8 @@ interface FileTreeSidebarProps {
   diffStats: Record<string, DiffStat>;
   changeTypes: Record<string, string>;
   viewedFiles: Set<string>;
+  autoReloadEnabled: boolean;
+  connectionState: ConnectionState;
   onSelectFile: (path: string) => void;
   onToggleFolder: (path: string) => void;
   onSetTreeViewMode: (mode: "changed" | "full") => void;
@@ -47,6 +50,7 @@ interface FileTreeSidebarProps {
   onCollapseAll: () => void;
   onRefresh: () => void;
   onToggleViewed: (path: string) => void;
+  onAutoReloadToggle: () => void;
 }
 
 export function FileTreeSidebar({
@@ -64,6 +68,8 @@ export function FileTreeSidebar({
   diffStats,
   changeTypes,
   viewedFiles,
+  autoReloadEnabled,
+  connectionState,
   onSelectFile,
   onToggleFolder,
   onSetTreeViewMode,
@@ -71,6 +77,7 @@ export function FileTreeSidebar({
   onCollapseAll,
   onRefresh,
   onToggleViewed,
+  onAutoReloadToggle,
 }: FileTreeSidebarProps) {
   const [filterQuery, setFilterQuery] = useState("");
   const baseTree = treeViewMode === "changed" ? changedFilesTree : fileTree;
@@ -121,9 +128,12 @@ export function FileTreeSidebar({
           </div>
           <FileTreeToolbar
             loading={loading}
+            autoReloadEnabled={autoReloadEnabled}
+            connectionState={connectionState}
             onExpandAll={onExpandAll}
             onCollapseAll={onCollapseAll}
             onRefresh={onRefresh}
+            onAutoReloadToggle={onAutoReloadToggle}
           />
           <nav className="min-h-0 flex-1 overflow-y-auto py-1">
             {treeViewMode === "changed" && changedFilesCount === 0 ? (

@@ -4,19 +4,7 @@ import path from "path";
 import { NextResponse } from "next/server";
 import { loadConfig, getTargetDir } from "@/lib/config";
 import { validateBaseRef } from "@/lib/git-ref";
-
-const SKIP_DIRS = new Set([
-  ".git",
-  "node_modules",
-  ".next",
-  "__pycache__",
-  ".venv",
-  "venv",
-  ".cache",
-  "dist",
-  "build",
-  ".turbo",
-]);
+import { SKIP_DIRS } from "@/lib/watch-config";
 
 /**
  * targetDir 配下の全ファイルを再帰的に列挙し、差分のあるファイル一覧を git から取得して返す。

@@ -14,9 +14,11 @@ export function useFiles() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchFiles = useCallback(async (effectiveTarget: string, diffBase: string) => {
+  const fetchFiles = useCallback(async (effectiveTarget: string, diffBase: string, options?: { silent?: boolean }) => {
     if (!effectiveTarget) return;
-    setLoading(true);
+    if (!options?.silent) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const res = await fetch(
