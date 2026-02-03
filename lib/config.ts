@@ -1,5 +1,18 @@
 import { readFileSync } from "fs";
 import path from "path";
+import { z } from "zod";
+
+/** config.json のスキーマ定義 */
+export const ScrutinyConfigSchema = z.object({
+  /** ターゲット名 → projectRoot からの相対パス */
+  targets: z.record(z.string(), z.string().min(1, "ターゲットパスは空文字にできません")).optional(),
+  /** tmux セッション名 */
+  tmuxSession: z.string().min(1, "tmuxSession は空文字にできません").optional(),
+  /** 起動時にエージェント用 tmux セッション内で実行するコマンド */
+  agentCommand: z.string().min(1, "agentCommand は空文字にできません").optional(),
+});
+
+export type ScrutinyConfigInput = z.infer<typeof ScrutinyConfigSchema>;
 
 export interface ScrutinyConfig {
   /** ターゲット名 → projectRoot からの相対パス。必須。 */
@@ -17,30 +30,58 @@ const defaultConfig: Omit<ScrutinyConfig, "targets"> & {
 };
 
 /**
+ * zod バリデーションエラーを人間が読みやすい形式に整形
+ */
+function formatValidationError(error: z.ZodError): string {
+  return error.issues
+    .map((issue) => {
+      const path = issue.path.length > 0 ? `"${issue.path.join(".")}"` : "ルート";
+      return `  - ${path}: ${issue.message}`;
+    })
+    .join("\n");
+}
+
+/**
  * AgentScrutiny プロジェクトルートの config.json を読み、
  * targets のみで扱う。targets が無い・空の場合は { "default": "." } とする。
  */
 export function loadConfig(projectRoot: string = process.cwd()): ScrutinyConfig {
   const configPath = path.join(projectRoot, "config.json");
-  let raw: Partial<ScrutinyConfig> = {};
+  let raw: unknown = {};
   try {
-    raw = JSON.parse(readFileSync(configPath, "utf-8")) as Partial<ScrutinyConfig>;
-  } catch {
-    // ファイルが無い・JSON 不正の場合はデフォルト
+    raw = JSON.parse(readFileSync(configPath, "utf-8"));
+  } catch (e) {
+    if (e instanceof SyntaxError) {
+      console.warn(`[config] config.json のJSON構文が不正です: ${e.message}`);
+    }
+    // ファイルが無い場合はデフォルト
   }
-  const rawTargets = raw.targets && typeof raw.targets === "object" && Object.keys(raw.targets).length > 0
-    ? raw.targets
+
+  // zodでバリデーション
+  const result = ScrutinyConfigSchema.safeParse(raw);
+  let validated: ScrutinyConfigInput;
+  if (!result.success) {
+    const errorMessage = formatValidationError(result.error);
+    console.warn(`[config] config.json のバリデーションエラー:\n${errorMessage}`);
+    console.warn("[config] デフォルト設定を使用します");
+    validated = {};
+  } else {
+    validated = result.data;
+  }
+
+  const rawTargets = validated.targets && Object.keys(validated.targets).length > 0
+    ? validated.targets
     : { default: "." };
   const targets: Record<string, string> = {};
   for (const [k, v] of Object.entries(rawTargets)) {
-    if (typeof v === "string" && v.trim()) targets[k.trim()] = v.trim();
+    if (v.trim()) targets[k.trim()] = v.trim();
   }
   if (Object.keys(targets).length === 0) targets.default = ".";
 
   const tmuxSession =
-    (raw.tmuxSession ?? process.env.AGENT_SCRUTINY_TMUX_SESSION)?.trim() ||
+    (validated.tmuxSession ?? process.env.AGENT_SCRUTINY_TMUX_SESSION)?.trim() ||
     defaultConfig.tmuxSession;
-  return { ...defaultConfig, ...raw, targets, tmuxSession };
+  return { ...defaultConfig, ...validated, targets, tmuxSession };
 }
 
 /**
