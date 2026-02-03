@@ -43,7 +43,9 @@ class FileWatcherManager {
     entry.subscribers.delete(callback);
 
     if (entry.subscribers.size === 0) {
-      entry.watcher.close();
+      void entry.watcher.close().catch((err) => {
+        console.error("Failed to close watcher:", err);
+      });
       this.watchers.delete(targetDir);
 
       // targetDirに紐づく全てのデバウンスタイマーをクリア
