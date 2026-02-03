@@ -1,9 +1,10 @@
 import { randomUUID } from "crypto";
 import { spawnSync } from "child_process";
 import path from "path";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { loadConfig, getTargetNames, getTargetDir } from "@/lib/config";
 import { readFeedback, writeFeedback, writeFeedbackForAgent } from "@/lib/feedback";
+import { checkOrigin } from "@/lib/api/checkOrigin";
 
 /**
  * tmux セッション名用に target 名を正規化する（start-scrutiny.sh と同じルール）。
@@ -21,7 +22,12 @@ function buildInstruction(feedbackFileRelativePath: string): string {
   return `${feedbackFileRelativePath} を読んでフィードバック（ファイル・行）を確認し、指摘に対応してください。`;
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const originError = checkOrigin(request);
+  if (originError) {
+    return NextResponse.json({ error: originError }, { status: 403 });
+  }
+
   const projectRoot = process.cwd();
   const config = loadConfig(projectRoot);
   const targetNames = getTargetNames(config);

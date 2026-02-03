@@ -1,6 +1,7 @@
 import { spawnSync } from "child_process";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { loadConfig, getTargetNames, getTargetDir } from "@/lib/config";
+import { checkOrigin } from "@/lib/api/checkOrigin";
 
 /**
  * tmux セッション名用に target 名を正規化する（start-scrutiny.sh と同じルール）。
@@ -13,7 +14,12 @@ function sanitizeSessionName(name: string): string {
 
 const COMMIT_INSTRUCTION = "現在の変更をコミットしてください。";
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const originError = checkOrigin(request);
+  if (originError) {
+    return NextResponse.json({ error: originError }, { status: 403 });
+  }
+
   const projectRoot = process.cwd();
   const config = loadConfig(projectRoot);
   const targetNames = getTargetNames(config);

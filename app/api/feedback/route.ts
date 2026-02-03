@@ -9,6 +9,7 @@ import {
   unresolveItems,
   type FeedbackItem,
 } from "@/lib/feedback";
+import { checkOrigin } from "@/lib/api/checkOrigin";
 
 export async function GET(request: NextRequest) {
   const projectRoot = process.cwd();
@@ -24,6 +25,11 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const originError = checkOrigin(request);
+  if (originError) {
+    return NextResponse.json({ error: originError }, { status: 403 });
+  }
+
   const projectRoot = process.cwd();
   const config = loadConfig(projectRoot);
   const targetNames = getTargetNames(config);
