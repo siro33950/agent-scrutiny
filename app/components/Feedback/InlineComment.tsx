@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Markdown from "react-markdown";
 import type { FeedbackItem } from "@/lib/feedback";
 import { STATUS_CONFIG, type FeedbackStatus } from "@/app/utils/feedbackStyles";
 import { formatRelativeTime } from "@/app/utils/time";
@@ -209,9 +210,9 @@ export function InlineComment({
       </div>
 
       {/* Body */}
-      <p className="whitespace-pre-wrap break-words text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed mb-1.5">
-        {item?.comment}
-      </p>
+      <div className="prose prose-xs prose-zinc dark:prose-invert max-w-none mb-1.5 [&_pre]:bg-zinc-100 [&_pre]:dark:bg-zinc-800 [&_pre]:p-2 [&_pre]:rounded [&_pre]:overflow-x-auto [&_code]:text-[10px] [&_p]:text-xs [&_p]:leading-relaxed [&_p]:my-1 [&_ul]:text-xs [&_ol]:text-xs [&_li]:my-0.5">
+        <Markdown>{item?.comment ?? ""}</Markdown>
+      </div>
 
       {/* Footer */}
       <div className="flex items-center gap-1.5">
