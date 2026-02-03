@@ -8,3 +8,5 @@ export type FolderNode = {
 export type FileNode = { type: "file"; name: string; path: string };
 
 export type TreeNode = FolderNode | FileNode;
+
+export type ViewMode = "inline" | "sideBySide" | "latest";

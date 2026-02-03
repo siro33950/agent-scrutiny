@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FeedbackItem } from "@/lib/feedback";
+import type { ViewMode } from "@/app/types";
 import { buildTree, collectFolderPaths } from "@/app/components/FileTree/treeUtils";
 import { useTargets } from "@/app/hooks/useTargets";
 import { useBranches } from "@/app/hooks/useBranches";
@@ -35,7 +36,7 @@ export default function Home() {
   const [submitMessage, setSubmitMessage] = useState("");
   const [dismissBanner, setDismissBanner] = useState<string | null>(null);
   const [actionType, setActionType] = useState<"submit" | "approve">("submit");
-  const [renderSideBySide, setRenderSideBySide] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>("inline");
   const [confirmDeleteItem, setConfirmDeleteItem] = useState<FeedbackItem | null>(null);
   const [selectedResolvedItem, setSelectedResolvedItem] = useState<FeedbackItem | null>(null);
   const cursorLineRef = useRef<number>(1);
@@ -376,14 +377,14 @@ export default function Home() {
               resolvedItems={visibleResolvedItems}
               highlightLineIds={highlightLineIds}
               isDark={isDark}
-              renderSideBySide={renderSideBySide}
+              viewMode={viewMode}
               changedFiles={changedFiles}
               creatingAtLine={creatingAtLine}
               creatingAtLineEnd={creatingAtLineEnd}
               onSelectTab={setActiveTabIndex}
               onCloseTab={closeTab}
               onWholeFileFeedback={handleWholeFileFeedback}
-              onToggleSideBySide={() => setRenderSideBySide((p) => !p)}
+              onViewModeChange={setViewMode}
               onPrevFile={handlePrevFile}
               onNextFile={handleNextFile}
               onSaveComment={inlineComment.save}

@@ -1,7 +1,9 @@
+import type { ViewMode } from "@/app/types";
+
 interface DiffViewerToolbarProps {
   currentPath: string | null;
-  renderSideBySide: boolean;
-  onToggleSideBySide: () => void;
+  viewMode: ViewMode;
+  onViewModeChange: (mode: ViewMode) => void;
   onPrevFile: () => void;
   onNextFile: () => void;
   hasPrev: boolean;
@@ -14,8 +16,8 @@ interface DiffViewerToolbarProps {
 
 export function DiffViewerToolbar({
   currentPath,
-  renderSideBySide,
-  onToggleSideBySide,
+  viewMode,
+  onViewModeChange,
   onPrevFile,
   onNextFile,
   hasPrev,
@@ -56,18 +58,44 @@ export function DiffViewerToolbar({
           </svg>
         </button>
         <div className="mx-1 h-4 w-px bg-zinc-200 dark:bg-zinc-700" />
-        <button
-          type="button"
-          onClick={onToggleSideBySide}
-          className={`rounded px-2 py-1 text-xs font-medium ${
-            renderSideBySide
-              ? "bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-200"
-              : "text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
-          }`}
-          title={renderSideBySide ? "Inline表示に切替" : "Side-by-Side表示に切替"}
-        >
-          {renderSideBySide ? "Side-by-Side" : "Inline"}
-        </button>
+        <div className="flex overflow-hidden rounded border border-zinc-200 dark:border-zinc-700">
+          <button
+            type="button"
+            onClick={() => onViewModeChange("inline")}
+            className={`px-2 py-1 text-xs font-medium ${
+              viewMode === "inline"
+                ? "bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-200"
+                : "text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            }`}
+            title="Inline表示"
+          >
+            Inline
+          </button>
+          <button
+            type="button"
+            onClick={() => onViewModeChange("sideBySide")}
+            className={`border-l border-zinc-200 px-2 py-1 text-xs font-medium dark:border-zinc-700 ${
+              viewMode === "sideBySide"
+                ? "bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-200"
+                : "text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            }`}
+            title="Side-by-Side表示"
+          >
+            Side-by-Side
+          </button>
+          <button
+            type="button"
+            onClick={() => onViewModeChange("latest")}
+            className={`border-l border-zinc-200 px-2 py-1 text-xs font-medium dark:border-zinc-700 ${
+              viewMode === "latest"
+                ? "bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-200"
+                : "text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            }`}
+            title="最新ファイルのみ表示"
+          >
+            Latest
+          </button>
+        </div>
         {hasCollapsibleComments && (
           <>
             <div className="mx-1 h-4 w-px bg-zinc-200 dark:bg-zinc-700" />

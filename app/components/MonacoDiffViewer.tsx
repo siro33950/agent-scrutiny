@@ -1,10 +1,12 @@
 "use client";
 
-import { DiffEditor } from "@monaco-editor/react";
+import { DiffEditor, Editor } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { diffLines } from "diff";
 import type { FeedbackItem } from "@/lib/feedback";
+import type { ViewMode } from "@/app/types";
 import { InlineComment } from "./Feedback/InlineComment";
 
 function getLanguageFromPath(filePath: string): string {
@@ -50,6 +52,30 @@ function getLanguageFromPath(filePath: string): string {
   }
 }
 
+/**
+ * 変更行を検出する
+ * diffライブラリを使用して行単位の差分を計算し、
+ * 変更・追加された行のみを正確に特定する
+ */
+function getChangedLines(original: string, modified: string): Set<number> {
+  const changedLines = new Set<number>();
+  const diff = diffLines(original, modified);
+
+  let modifiedLineNum = 0;
+  for (const part of diff) {
+    const lineCount = part.count ?? 0;
+    if (part.added) {
+      for (let i = 0; i < lineCount; i++) {
+        modifiedLineNum++;
+        changedLines.add(modifiedLineNum);
+      }
+    } else if (!part.removed) {
+      modifiedLineNum += lineCount;
+    }
+  }
+  return changedLines;
+}
+
 export interface MonacoDiffViewerProps {
   original: string;
   modified: string;
@@ -57,7 +83,7 @@ export interface MonacoDiffViewerProps {
   language?: string;
   theme?: "light" | "vs-dark";
   highlightLineIds?: string[];
-  renderSideBySide?: boolean;
+  viewMode?: ViewMode;
   feedbackItems?: FeedbackItem[];
   resolvedItems?: FeedbackItem[];
   creatingAtLine?: number | null;
@@ -80,7 +106,7 @@ export function MonacoDiffViewer({
   language: languageProp,
   theme = "light",
   highlightLineIds,
-  renderSideBySide = false,
+  viewMode = "inline",
   feedbackItems,
   resolvedItems,
   creatingAtLine,
@@ -96,16 +122,20 @@ export function MonacoDiffViewer({
   onToggleCommentCollapse,
 }: MonacoDiffViewerProps) {
   const [editorReady, setEditorReady] = useState(false);
+
+  // viewMode 変更時に editorReady をリセット（新しい editor がマウントされるまで待機させる）
+  useEffect(() => {
+    setEditorReady(false);
+  }, [viewMode]);
+
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const modifiedEditorRef = useRef<Monaco.editor.ICodeEditor | null>(null);
   const originalEditorRef = useRef<Monaco.editor.ICodeEditor | null>(null);
   const monacoRef = useRef<typeof Monaco | null>(null);
-  const hoverDecorationIdsRef = useRef<string[]>([]);
   const highlightDecorationIdsRef = useRef<string[]>([]);
-  const dragRangeDecorationIdsRef = useRef<string[]>([]);
+  const rangeHighlightDecorationIdsRef = useRef<string[]>([]);
   const collapsedIconDecorationIdsRef = useRef<string[]>([]);
-  const dragStartLineRef = useRef<number | null>(null);
-  const dragEndLineRef = useRef<number | null>(null);
+  const rangeStartLineRef = useRef<number | null>(null);
   type ZoneRef = { id: string; config: Monaco.editor.IViewZone; domNode: HTMLDivElement };
   const zoneRefsRef = useRef<ZoneRef[]>([]);
   const viewZoneRootsRef = useRef<Root[]>([]);
@@ -126,6 +156,7 @@ export function MonacoDiffViewer({
   const resolvedItemsRef = useRef(resolvedItems);
   const collapsedCommentIdsRef = useRef(collapsedCommentIds);
   const filePathRef = useRef(filePath);
+  const prevCreatingAtLineRef = useRef<number | null | undefined>(undefined);
   filePathRef.current = filePath;
   onCreateAtLineRef.current = onCreateAtLine;
   onResolveItemRef.current = onResolveItem;
@@ -145,50 +176,37 @@ export function MonacoDiffViewer({
     return Array.from(collapsedCommentIds).sort().join("\n");
   }, [collapsedCommentIds]);
 
-  const updatePlusDecoration = useCallback((lineNumber: number | null) => {
-    const editor = modifiedEditorRef.current;
-    const monaco = monacoRef.current;
-    if (!editor || !monaco) return;
-    const newDecos =
-      lineNumber != null
-        ? [
-            {
-              range: new monaco.Range(lineNumber, 1, lineNumber, 1),
-              options: { glyphMarginClassName: "scrutiny-comment-plus" },
-            },
-          ]
-        : [];
-    const nextIds = editor.deltaDecorations(hoverDecorationIdsRef.current, newDecos);
-    hoverDecorationIdsRef.current = nextIds;
-  }, []);
-
-  const updateDragRangeDecoration = useCallback(
+  const updateRangeHighlight = useCallback(
     (startLine: number | null, endLine: number | null) => {
       const editor = modifiedEditorRef.current;
       const monaco = monacoRef.current;
       if (!editor || !monaco) return;
-      if (startLine == null || endLine == null) {
+      if (startLine == null) {
         const nextIds = editor.deltaDecorations(
-          dragRangeDecorationIdsRef.current,
+          rangeHighlightDecorationIdsRef.current,
           []
         );
-        dragRangeDecorationIdsRef.current = nextIds;
+        rangeHighlightDecorationIdsRef.current = nextIds;
         return;
       }
-      const s = Math.min(startLine, endLine);
-      const e = Math.max(startLine, endLine);
+      const s = Math.min(startLine, endLine ?? startLine);
+      const e = Math.max(startLine, endLine ?? startLine);
       const newDecos = [];
       for (let line = s; line <= e; line++) {
         newDecos.push({
           range: new monaco.Range(line, 1, line, 1),
-          options: { isWholeLine: true, className: "scrutiny-drag-range" },
+          options: {
+            isWholeLine: true,
+            className: "scrutiny-range-highlight",
+            linesDecorationsClassName: "scrutiny-range-line-decoration",
+          },
         });
       }
       const nextIds = editor.deltaDecorations(
-        dragRangeDecorationIdsRef.current,
+        rangeHighlightDecorationIdsRef.current,
         newDecos
       );
-      dragRangeDecorationIdsRef.current = nextIds;
+      rangeHighlightDecorationIdsRef.current = nextIds;
     },
     []
   );
@@ -212,7 +230,7 @@ export function MonacoDiffViewer({
     }
     const newDecos = Array.from(lineNumbers).map((line) => ({
       range: new monaco.Range(line, 1, line, 1),
-      options: { isWholeLine: true, className: "scrutiny-feedback-line" },
+      options: { linesDecorationsClassName: "scrutiny-feedback-line-decoration" },
     }));
     const nextIds = editor.deltaDecorations(
       highlightDecorationIdsRef.current,
@@ -333,6 +351,8 @@ export function MonacoDiffViewer({
     collapsedIconDecorationIdsRef.current = nextCollapsedIds;
 
     // Add creating zone if active
+    // shouldAutoFocus: creatingAtLine が新しく設定された時のみ true
+    const shouldAutoFocus = creatingAtLine != null && prevCreatingAtLineRef.current == null;
     if (creatingAtLine != null) {
       const afterLine = creatingAtLineEnd ?? creatingAtLine;
       zoneEntries.push({
@@ -344,6 +364,7 @@ export function MonacoDiffViewer({
           root.render(
             <InlineComment
               isNew
+              shouldAutoFocus={shouldAutoFocus}
               filePath={filePathRef.current}
               lineNumber={creatingAtLine}
               lineNumberEnd={creatingAtLineEnd ?? undefined}
@@ -362,6 +383,8 @@ export function MonacoDiffViewer({
         },
       });
     }
+    // prevCreatingAtLineRef を更新
+    prevCreatingAtLineRef.current = creatingAtLine;
 
     // Sort all entries by line
     zoneEntries.sort((a, b) => a.afterLine - b.afterLine);
@@ -462,43 +485,70 @@ export function MonacoDiffViewer({
       modifiedEditor.updateOptions({ readOnly: true, glyphMargin: true });
 
       const cursorLineDispose = modifiedEditor.onDidChangeCursorPosition((e) => {
-        updatePlusDecoration(e.position.lineNumber);
         onCursorLineChangedRef.current?.(e.position.lineNumber);
       });
-      const pos = modifiedEditor.getPosition();
-      updatePlusDecoration(pos?.lineNumber ?? 1);
 
       const wrapper = wrapperRef.current;
       if (!wrapper) return;
 
-      const getTargetAt = (clientX: number, clientY: number) => {
-        const modified = modifiedEditorRef.current?.getTargetAtClientPoint(clientX, clientY);
-        if (modified) return { target: modified, editor: modifiedEditorRef.current };
-        const original = originalEditorRef.current?.getTargetAtClientPoint(clientX, clientY);
-        if (original) return { target: original, editor: originalEditorRef.current };
-        return null;
-      };
+      // 行番号ドラッグで範囲選択コメント追加
+      // DOMレベルのmousemoveリスナー参照（cleanup用）
+      let onDocumentMouseMove: ((e: MouseEvent) => void) | null = null;
+      let onDocumentMouseUp: ((e: MouseEvent) => void) | null = null;
 
-      const onMouseMove = (e: MouseEvent) => {
-        const hit = getTargetAt(e.clientX, e.clientY);
-        const lineNumber = hit?.target?.position?.lineNumber ?? null;
-        if (dragStartLineRef.current != null && lineNumber != null) {
-          dragEndLineRef.current = lineNumber;
-          updateDragRangeDecoration(dragStartLineRef.current, dragEndLineRef.current);
+      const mouseDownDispose = modifiedEditor.onMouseDown((e) => {
+        if (e.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS) {
+          const lineNumber = e.target.position?.lineNumber;
+          if (!lineNumber) return;
+          rangeStartLineRef.current = lineNumber;
+          updateRangeHighlight(lineNumber, lineNumber);
+
+          // DOMレベルでmousemoveを監視（ドラッグ中も検知するため）
+          onDocumentMouseMove = (moveEvent: MouseEvent) => {
+            if (rangeStartLineRef.current == null) return;
+            const target = modifiedEditor.getTargetAtClientPoint(moveEvent.clientX, moveEvent.clientY);
+            const line = target?.position?.lineNumber;
+            if (line) {
+              updateRangeHighlight(rangeStartLineRef.current, line);
+            }
+          };
+
+          onDocumentMouseUp = (upEvent: MouseEvent) => {
+            document.removeEventListener("mousemove", onDocumentMouseMove!);
+            document.removeEventListener("mouseup", onDocumentMouseUp!);
+            onDocumentMouseMove = null;
+            onDocumentMouseUp = null;
+
+            const startLine = rangeStartLineRef.current;
+            if (startLine == null) return;
+
+            const target = modifiedEditor.getTargetAtClientPoint(upEvent.clientX, upEvent.clientY);
+            const endLine = target?.position?.lineNumber ?? startLine;
+
+            const s = Math.min(startLine, endLine);
+            const eEnd = Math.max(startLine, endLine);
+
+            updateRangeHighlight(null, null);
+            rangeStartLineRef.current = null;
+
+            onCreateAtLineRef.current?.(filePathRef.current, s, s === eEnd ? undefined : eEnd);
+          };
+
+          document.addEventListener("mousemove", onDocumentMouseMove);
+          document.addEventListener("mouseup", onDocumentMouseUp);
         }
-      };
+      });
 
+      // 折りたたまれたコメントアイコンをクリックした場合
       const onWrapperMouseDown = (e: MouseEvent) => {
-        const target = e.target as Node;
+        const target = e.target as HTMLElement;
         if (!wrapper.contains(target)) return;
 
-        // Check if clicked on collapsed comment icon
-        const isCommentIcon = (target as HTMLElement).closest?.(".scrutiny-comment-icon") != null;
+        const isCommentIcon = target.closest?.(".scrutiny-comment-icon") != null;
         if (isCommentIcon) {
-          const hit = getTargetAt(e.clientX, e.clientY);
-          if (hit?.target?.position) {
-            const lineNumber = hit.target.position.lineNumber;
-            // Find the collapsed item at this line
+          const modified = modifiedEditorRef.current?.getTargetAtClientPoint(e.clientX, e.clientY);
+          if (modified?.position) {
+            const lineNumber = modified.position.lineNumber;
             const allItems = [
               ...(feedbackItemsRef.current ?? []),
               ...(resolvedItemsRef.current ?? []),
@@ -513,67 +563,169 @@ export function MonacoDiffViewer({
             }
           }
         }
-
-        const isPlusGlyph = (target as HTMLElement).closest?.(".scrutiny-comment-plus") != null;
-        if (!isPlusGlyph) return;
-        const hit = getTargetAt(e.clientX, e.clientY);
-        if (!hit?.target?.position) return;
-        const lineNumber = hit.target.position.lineNumber;
-        dragStartLineRef.current = lineNumber;
-        dragEndLineRef.current = lineNumber;
-        updateDragRangeDecoration(lineNumber, lineNumber);
-      };
-
-      const finishDrag = () => {
-        const start = dragStartLineRef.current;
-        if (start == null) return;
-        updateDragRangeDecoration(null, null);
-        const end = dragEndLineRef.current ?? start;
-        const s = Math.min(start, end);
-        const e = Math.max(start, end);
-        dragStartLineRef.current = null;
-        dragEndLineRef.current = null;
-        // Inline creation instead of opening bottom panel
-        onCreateAtLineRef.current?.(filePathRef.current, s, s === e ? undefined : e);
-      };
-
-      const onWrapperMouseUp = () => {
-        finishDrag();
       };
 
       const useCapture = true;
-      wrapper.addEventListener("mousemove", onMouseMove, useCapture);
       wrapper.addEventListener("mousedown", onWrapperMouseDown, useCapture);
-      wrapper.addEventListener("mouseup", onWrapperMouseUp, useCapture);
-
-      const docMouseUp = () => {
-        if (dragStartLineRef.current != null) finishDrag();
-      };
-      document.addEventListener("mouseup", docMouseUp);
 
       const dispose = () => {
         cursorLineDispose.dispose();
-        wrapper.removeEventListener("mousemove", onMouseMove, useCapture);
+        mouseDownDispose.dispose();
+        // DOMイベントリスナーのクリーンアップ
+        if (onDocumentMouseMove) {
+          document.removeEventListener("mousemove", onDocumentMouseMove);
+        }
+        if (onDocumentMouseUp) {
+          document.removeEventListener("mouseup", onDocumentMouseUp);
+        }
         wrapper.removeEventListener("mousedown", onWrapperMouseDown, useCapture);
-        wrapper.removeEventListener("mouseup", onWrapperMouseUp, useCapture);
-        document.removeEventListener("mouseup", docMouseUp);
-        updateDragRangeDecoration(null, null);
+        updateRangeHighlight(null, null);
+        rangeStartLineRef.current = null;
         modifiedEditorRef.current = null;
         originalEditorRef.current = null;
         monacoRef.current = null;
-        hoverDecorationIdsRef.current = [];
         highlightDecorationIdsRef.current = [];
-        dragRangeDecorationIdsRef.current = [];
+        rangeHighlightDecorationIdsRef.current = [];
         collapsedIconDecorationIdsRef.current = [];
-        updatePlusDecoration(null);
         setEditorReady(false);
       };
       editor.onDidDispose(dispose);
     },
-    [updatePlusDecoration, updateDragRangeDecoration, languageProp]
+    [updateRangeHighlight]
   );
 
   const language = languageProp ?? getLanguageFromPath(filePath);
+
+  // 変更行を計算（latestモード用）
+  const changedLines = useMemo(() => getChangedLines(original, modified), [original, modified]);
+
+  // Latestモード用のmount handler
+  const handleLatestMount = useCallback(
+    (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => {
+      modifiedEditorRef.current = editor;
+      monacoRef.current = monaco;
+      setEditorReady(true);
+
+      editor.updateOptions({ readOnly: true, glyphMargin: true });
+
+      // 変更行のデコレーションを適用
+      const decos: Monaco.editor.IModelDeltaDecoration[] = [];
+      for (const lineNumber of changedLines) {
+        decos.push({
+          range: new monaco.Range(lineNumber, 1, lineNumber, 1),
+          options: { linesDecorationsClassName: "scrutiny-changed-line-decoration" },
+        });
+      }
+      const ids = editor.deltaDecorations([], decos);
+      highlightDecorationIdsRef.current = ids;
+
+      const cursorLineDispose = editor.onDidChangeCursorPosition((e) => {
+        onCursorLineChangedRef.current?.(e.position.lineNumber);
+      });
+
+      const wrapper = wrapperRef.current;
+      if (!wrapper) return;
+
+      // 行番号ドラッグで範囲選択コメント追加
+      // DOMレベルのmousemoveリスナー参照（cleanup用）
+      let onDocumentMouseMove: ((e: MouseEvent) => void) | null = null;
+      let onDocumentMouseUp: ((e: MouseEvent) => void) | null = null;
+
+      const mouseDownDispose = editor.onMouseDown((e) => {
+        if (e.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS) {
+          const lineNumber = e.target.position?.lineNumber;
+          if (!lineNumber) return;
+          rangeStartLineRef.current = lineNumber;
+          updateRangeHighlight(lineNumber, lineNumber);
+
+          // DOMレベルでmousemoveを監視（ドラッグ中も検知するため）
+          onDocumentMouseMove = (moveEvent: MouseEvent) => {
+            if (rangeStartLineRef.current == null) return;
+            const target = editor.getTargetAtClientPoint(moveEvent.clientX, moveEvent.clientY);
+            const line = target?.position?.lineNumber;
+            if (line) {
+              updateRangeHighlight(rangeStartLineRef.current, line);
+            }
+          };
+
+          onDocumentMouseUp = (upEvent: MouseEvent) => {
+            document.removeEventListener("mousemove", onDocumentMouseMove!);
+            document.removeEventListener("mouseup", onDocumentMouseUp!);
+            onDocumentMouseMove = null;
+            onDocumentMouseUp = null;
+
+            const startLine = rangeStartLineRef.current;
+            if (startLine == null) return;
+
+            const target = editor.getTargetAtClientPoint(upEvent.clientX, upEvent.clientY);
+            const endLine = target?.position?.lineNumber ?? startLine;
+
+            const s = Math.min(startLine, endLine);
+            const eEnd = Math.max(startLine, endLine);
+
+            updateRangeHighlight(null, null);
+            rangeStartLineRef.current = null;
+
+            onCreateAtLineRef.current?.(filePathRef.current, s, s === eEnd ? undefined : eEnd);
+          };
+
+          document.addEventListener("mousemove", onDocumentMouseMove);
+          document.addEventListener("mouseup", onDocumentMouseUp);
+        }
+      });
+
+      // 折りたたまれたコメントアイコンをクリックした場合
+      const onWrapperMouseDown = (e: MouseEvent) => {
+        const target = e.target as HTMLElement;
+        if (!wrapper.contains(target)) return;
+
+        const isCommentIcon = target.closest?.(".scrutiny-comment-icon") != null;
+        if (isCommentIcon) {
+          const position = editor.getTargetAtClientPoint(e.clientX, e.clientY);
+          if (position?.position) {
+            const lineNumber = position.position.lineNumber;
+            const allItems = [
+              ...(feedbackItemsRef.current ?? []),
+              ...(resolvedItemsRef.current ?? []),
+            ];
+            const item = allItems.find((i) => i.line_number === lineNumber);
+            if (item) {
+              const itemId = `${item.file_path}:${item.line_number}:${item.line_number_end ?? ""}`;
+              onToggleCommentCollapseRef.current?.(itemId);
+              e.preventDefault();
+              e.stopPropagation();
+              return;
+            }
+          }
+        }
+      };
+
+      const useCapture = true;
+      wrapper.addEventListener("mousedown", onWrapperMouseDown, useCapture);
+
+      return () => {
+        cursorLineDispose.dispose();
+        mouseDownDispose.dispose();
+        // DOMイベントリスナーのクリーンアップ
+        if (onDocumentMouseMove) {
+          document.removeEventListener("mousemove", onDocumentMouseMove);
+        }
+        if (onDocumentMouseUp) {
+          document.removeEventListener("mouseup", onDocumentMouseUp);
+        }
+        wrapper.removeEventListener("mousedown", onWrapperMouseDown, useCapture);
+        updateRangeHighlight(null, null);
+        rangeStartLineRef.current = null;
+        modifiedEditorRef.current = null;
+        monacoRef.current = null;
+        highlightDecorationIdsRef.current = [];
+        rangeHighlightDecorationIdsRef.current = [];
+        collapsedIconDecorationIdsRef.current = [];
+        setEditorReady(false);
+      };
+    },
+    [updateRangeHighlight, changedLines]
+  );
 
   const handleBeforeMount = useCallback((monaco: typeof Monaco) => {
     const m = monaco as typeof Monaco & {
@@ -590,37 +742,42 @@ export function MonacoDiffViewer({
       const style = document.createElement("style");
       style.id = "scrutiny-monaco-styles";
       style.textContent = `
-        .scrutiny-comment-plus::before {
-          content: "+" !important;
-          display: flex !important;
-          align-items: center !important;
-          justify-content: center !important;
-          font-size: 14px !important;
-          font-weight: 600 !important;
-          color: rgb(59 130 246) !important;
-          cursor: pointer !important;
-        }
-        .vs-dark .scrutiny-comment-plus::before { color: rgb(96 165 250) !important; }
-        .scrutiny-drag-range {
+        /* 行番号クリック時のハイライト */
+        .scrutiny-range-highlight {
           background: rgba(59, 130, 246, 0.18) !important;
-          border-left: 3px solid rgb(59, 130, 246) !important;
         }
-        .scrutiny-feedback-line {
-          background: rgba(59, 130, 246, 0.08) !important;
-        }
-        .vs-dark .scrutiny-drag-range {
+        .vs-dark .scrutiny-range-highlight {
           background: rgba(96, 165, 250, 0.22) !important;
-          border-left-color: rgb(96, 165, 250) !important;
         }
-        .vs-dark .scrutiny-feedback-line {
-          background: rgba(96, 165, 250, 0.12) !important;
+        /* 範囲選択時の縦線（linesDecorationsClassName用） */
+        .scrutiny-range-line-decoration {
+          background: rgb(59, 130, 246) !important;
+          width: 3px !important;
+          margin-left: 3px;
         }
+        .vs-dark .scrutiny-range-line-decoration {
+          background: rgb(96, 165, 250) !important;
+        }
+        /* フィードバック対象行の縦線ハイライト（展開時） */
+        .scrutiny-feedback-line-decoration {
+          background: rgb(59, 130, 246) !important;
+          width: 3px !important;
+          margin-left: 3px;
+        }
+        .vs-dark .scrutiny-feedback-line-decoration {
+          background: rgb(96, 165, 250) !important;
+        }
+        /* ViewZone のスタイル */
         .view-zones .view-zone {
           z-index: 10;
           position: relative;
           pointer-events: auto;
         }
-        /* Collapsed comment icon in gutter */
+        /* 行番号のクリック可能なスタイル */
+        .monaco-editor .margin-view-overlays .line-numbers {
+          cursor: pointer !important;
+        }
+        /* 折りたたまれたコメントアイコン */
         .scrutiny-comment-icon::before {
           content: "💬" !important;
           display: flex !important;
@@ -635,29 +792,60 @@ export function MonacoDiffViewer({
         .scrutiny-comment-resolved::before {
           filter: hue-rotate(100deg) saturate(1.5);
         }
+        /* Latest モードの変更行ハイライト */
+        .scrutiny-changed-line-decoration {
+          background: #22c55e !important;
+          width: 3px !important;
+          margin-left: 3px !important;
+        }
+        .vs-dark .scrutiny-changed-line-decoration {
+          background: #4ade80 !important;
+        }
       `;
       document.head.appendChild(style);
     }
   }, []);
 
+  // viewModeに応じてrenderSideBySideを決定
+  const renderSideBySide = viewMode === "sideBySide";
+
   return (
     <div ref={wrapperRef} className="relative min-h-0 flex-1">
-      <DiffEditor
-        height="100%"
-        language={language}
-        original={original}
-        modified={modified}
-        theme={theme}
-        beforeMount={handleBeforeMount}
-        onMount={handleMount}
-        options={{
-          renderSideBySide,
-          readOnly: true,
-          automaticLayout: true,
-          scrollBeyondLastLine: false,
-          hideUnchangedRegions: { enabled: true },
-        }}
-      />
+      {viewMode === "latest" ? (
+        <Editor
+          key={`editor-${viewMode}`}
+          height="100%"
+          language={language}
+          value={modified}
+          theme={theme}
+          beforeMount={handleBeforeMount}
+          onMount={handleLatestMount}
+          options={{
+            readOnly: true,
+            automaticLayout: true,
+            scrollBeyondLastLine: false,
+            glyphMargin: true,
+          }}
+        />
+      ) : (
+        <DiffEditor
+          key={`diff-${viewMode}`}
+          height="100%"
+          language={language}
+          original={original}
+          modified={modified}
+          theme={theme}
+          beforeMount={handleBeforeMount}
+          onMount={handleMount}
+          options={{
+            renderSideBySide,
+            readOnly: true,
+            automaticLayout: true,
+            scrollBeyondLastLine: false,
+            hideUnchangedRegions: { enabled: true },
+          }}
+        />
+      )}
     </div>
   );
 }

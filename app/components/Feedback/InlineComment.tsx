@@ -9,6 +9,7 @@ interface InlineCommentProps {
   item?: FeedbackItem;
   status?: FeedbackStatus;
   isNew?: boolean;
+  shouldAutoFocus?: boolean;
   filePath: string;
   lineNumber: number;
   lineNumberEnd?: number;
@@ -24,6 +25,7 @@ export function InlineComment({
   item,
   status,
   isNew,
+  shouldAutoFocus,
   filePath,
   lineNumber,
   lineNumberEnd,
@@ -42,12 +44,12 @@ export function InlineComment({
   const isEditable = isNew || effectiveStatus === "draft";
 
   useEffect(() => {
-    if (isEditable) {
+    if (shouldAutoFocus) {
       requestAnimationFrame(() => {
         textareaRef.current?.focus();
       });
     }
-  }, [isEditable]);
+  }, [shouldAutoFocus]);
 
   useEffect(() => {
     if (isNew) {

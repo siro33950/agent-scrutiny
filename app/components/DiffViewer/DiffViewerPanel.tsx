@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MonacoDiffViewer } from "@/app/components/MonacoDiffViewer";
 import type { FeedbackItem } from "@/lib/feedback";
+import type { ViewMode } from "@/app/types";
 import { TabBar } from "./TabBar";
 import { DiffViewerToolbar } from "./DiffViewerToolbar";
 
@@ -19,14 +20,14 @@ interface DiffViewerPanelProps {
   resolvedItems: FeedbackItem[];
   highlightLineIds: string[];
   isDark: boolean;
-  renderSideBySide: boolean;
+  viewMode: ViewMode;
   changedFiles: string[];
   creatingAtLine: number | null;
   creatingAtLineEnd: number | null;
   onSelectTab: (index: number) => void;
   onCloseTab: (index: number) => void;
   onWholeFileFeedback: () => void;
-  onToggleSideBySide: () => void;
+  onViewModeChange: (mode: ViewMode) => void;
   onPrevFile: () => void;
   onNextFile: () => void;
   onSaveComment: (filePath: string, lineNumber: number, lineNumberEnd: number | undefined, comment: string) => Promise<void>;
@@ -47,14 +48,14 @@ export function DiffViewerPanel({
   resolvedItems,
   highlightLineIds,
   isDark,
-  renderSideBySide,
+  viewMode,
   changedFiles,
   creatingAtLine,
   creatingAtLineEnd,
   onSelectTab,
   onCloseTab,
   onWholeFileFeedback,
-  onToggleSideBySide,
+  onViewModeChange,
   onPrevFile,
   onNextFile,
   onSaveComment,
@@ -173,8 +174,8 @@ export function DiffViewerPanel({
           />
           <DiffViewerToolbar
             currentPath={currentPath}
-            renderSideBySide={renderSideBySide}
-            onToggleSideBySide={onToggleSideBySide}
+            viewMode={viewMode}
+            onViewModeChange={onViewModeChange}
             onPrevFile={onPrevFile}
             onNextFile={onNextFile}
             hasPrev={hasPrev}
@@ -200,7 +201,7 @@ export function DiffViewerPanel({
                     highlightLineIds={highlightLineIds}
                     feedbackItems={currentFeedbackItems}
                     resolvedItems={currentResolvedItems}
-                    renderSideBySide={renderSideBySide}
+                    viewMode={viewMode}
                     creatingAtLine={creatingAtLine}
                     creatingAtLineEnd={creatingAtLineEnd}
                     onSaveComment={onSaveComment}
