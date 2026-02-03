@@ -1,7 +1,20 @@
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { FeedbackItem } from "@/lib/feedback";
 import type { FeedbackStatus } from "@/app/utils/feedbackStyles";
 import { FeedbackList } from "./FeedbackList";
+
+function formatFeedbackForClipboard(items: FeedbackItem[]): string {
+  if (items.length === 0) return "";
+  const lines = items.map((item) => {
+    const location = item.line_number === 0
+      ? item.file_path
+      : item.line_number_end
+        ? `${item.file_path}:${item.line_number}-${item.line_number_end}`
+        : `${item.file_path}:${item.line_number}`;
+    return `- ${location}\n  ${item.comment?.replace(/\n/g, "\n  ") ?? ""}`;
+  });
+  return lines.join("\n\n");
+}
 
 type FilteredItem = FeedbackItem & { _status: FeedbackStatus };
 
@@ -36,6 +49,20 @@ export function FeedbackPanel({
 }: FeedbackPanelProps) {
   const draftItems = useMemo(() => feedbackItems.filter((i) => !i.submitted_at), [feedbackItems]);
   const submittedItems = useMemo(() => feedbackItems.filter((i) => !!i.submitted_at), [feedbackItems]);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied">("idle");
+
+  const handleCopyToClipboard = useCallback(async () => {
+    const allItems = [...draftItems, ...submittedItems];
+    if (allItems.length === 0) return;
+    const text = formatFeedbackForClipboard(allItems);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyStatus("copied");
+      setTimeout(() => setCopyStatus("idle"), 2000);
+    } catch {
+      console.error("Failed to copy to clipboard");
+    }
+  }, [draftItems, submittedItems]);
 
   const filteredItems: FilteredItem[] = useMemo(() => {
     if (feedbackFilter === "all") {
@@ -84,16 +111,28 @@ export function FeedbackPanel({
                 {f === "resolved" && `完了 (${resolvedItems.length})`}
               </button>
             ))}
-            {draftItems.length > 0 && (
-              <button
-                type="button"
-                onClick={onSubmitAll}
-                disabled={submitting}
-                className="ml-auto rounded bg-emerald-600 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-500 dark:hover:bg-emerald-600"
-              >
-                {draftItems.length}件を送信
-              </button>
-            )}
+            <div className="ml-auto flex items-center gap-1">
+              {(draftItems.length > 0 || submittedItems.length > 0) && (
+                <button
+                  type="button"
+                  onClick={handleCopyToClipboard}
+                  className="rounded px-2 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                  title="フィードバックをクリップボードにコピー"
+                >
+                  {copyStatus === "copied" ? "Copied!" : "Copy"}
+                </button>
+              )}
+              {draftItems.length > 0 && (
+                <button
+                  type="button"
+                  onClick={onSubmitAll}
+                  disabled={submitting}
+                  className="rounded bg-emerald-600 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-500 dark:hover:bg-emerald-600"
+                >
+                  {draftItems.length}件を送信
+                </button>
+              )}
+            </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto py-1">
             {filteredItems.length === 0 ? (
