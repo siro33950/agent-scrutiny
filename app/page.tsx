@@ -12,6 +12,7 @@ import { useTabs } from "@/app/hooks/useTabs";
 import { useFileContent } from "@/app/hooks/useFileContent";
 import { useViewed } from "@/app/hooks/useViewed";
 import { useInlineComment } from "@/app/hooks/useInlineComment";
+import { useTheme } from "@/app/hooks/useTheme";
 import { Header } from "@/app/components/Header/Header";
 import { Banner } from "@/app/components/Banner";
 import { FileTreeSidebar } from "@/app/components/FileTree/FileTreeSidebar";
@@ -26,6 +27,7 @@ export default function Home() {
   const { feedbackItems, resolvedItems, fetchFeedback } = useFeedback(effectiveTarget);
   const { openTabs, activeTabIndex, setActiveTabIndex, selectFile, closeTab, clearTabs } = useTabs();
   const inlineComment = useInlineComment(effectiveTarget, fetchFeedback, setError);
+  const { mode: themeMode, setMode: setThemeMode, isDark } = useTheme();
 
   const [diffBase, setDiffBase] = useState<string>("HEAD");
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
@@ -269,9 +271,6 @@ export default function Home() {
       ]
     : [];
 
-  const isDark =
-    typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches;
-
   // Derive creatingAtLine for current file
   const creatingAtLine =
     inlineComment.state.creatingAt?.filePath === currentPath
@@ -294,6 +293,8 @@ export default function Home() {
         actionType={actionType}
         onActionTypeChange={setActionType}
         onAction={handleAction}
+        themeMode={themeMode}
+        onThemeModeChange={setThemeMode}
       />
 
       {(error || submitStatus !== "idle") && !dismissBanner && (
