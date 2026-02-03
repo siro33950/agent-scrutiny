@@ -3,6 +3,7 @@ import { spawnSync } from "child_process";
 import path from "path";
 import { NextResponse } from "next/server";
 import { loadConfig, getTargetDir } from "@/lib/config";
+import { validateBaseRef } from "@/lib/git-ref";
 
 /**
  * 選択ファイルの旧版（HEAD）・新版（作業ツリー）の全文を返す。
@@ -13,6 +14,14 @@ export async function GET(request: Request) {
   const config = loadConfig(projectRoot);
   const { searchParams } = new URL(request.url);
   const target = searchParams.get("target") ?? undefined;
+  const baseRaw = searchParams.get("base") ?? "HEAD";
+  const base = validateBaseRef(baseRaw);
+  if (!base) {
+    return NextResponse.json(
+      { error: "不正な base です" },
+      { status: 400 }
+    );
+  }
   const targetDir = getTargetDir(projectRoot, config, target);
   const filePath = searchParams.get("path");
   if (!filePath || !filePath.trim()) {
@@ -31,8 +40,8 @@ export async function GET(request: Request) {
   let oldContent = "";
   let newContent = "";
 
-  // 旧版: git show HEAD:path
-  const showResult = spawnSync("git", ["show", `HEAD:${normalized}`], {
+  // 旧版: git show base:path
+  const showResult = spawnSync("git", ["show", `${base}:${normalized}`], {
     cwd: targetDir,
     encoding: "utf-8",
     maxBuffer: 10 * 1024 * 1024,

@@ -1,15 +1,24 @@
 import { spawnSync } from "child_process";
 import { NextResponse } from "next/server";
 import { loadConfig, getTargetDir } from "@/lib/config";
+import { validateBaseRef } from "@/lib/git-ref";
 
 export async function GET(request: Request) {
   const projectRoot = process.cwd();
   const config = loadConfig(projectRoot);
   const { searchParams } = new URL(request.url);
   const target = searchParams.get("target") ?? undefined;
+  const baseRaw = searchParams.get("base") ?? "HEAD";
+  const base = validateBaseRef(baseRaw);
+  if (!base) {
+    return NextResponse.json(
+      { error: "不正な base です" },
+      { status: 400 }
+    );
+  }
   const targetDir = getTargetDir(projectRoot, config, target);
 
-  const result = spawnSync("git", ["diff", "HEAD"], {
+  const result = spawnSync("git", ["diff", base], {
     cwd: targetDir,
     encoding: "utf-8",
     maxBuffer: 10 * 1024 * 1024,

@@ -3,11 +3,7 @@ import { spawnSync } from "child_process";
 import path from "path";
 import { NextResponse } from "next/server";
 import { loadConfig, getTargetNames, getTargetDir } from "@/lib/config";
-import {
-  readFeedbackUnsent,
-  writeFeedbackForAgent,
-  writeFeedbackUnsent,
-} from "@/lib/feedback";
+import { readFeedback, writeFeedback, writeFeedbackForAgent } from "@/lib/feedback";
 
 /**
  * tmux セッション名用に target 名を正規化する（start-scrutiny.sh と同じルール）。
@@ -22,7 +18,7 @@ function sanitizeSessionName(name: string): string {
  * エージェントへの指示文。指定したファイル（agent の cwd = targetDir に対する相対パス）を読んで確認するように伝える。
  */
 function buildInstruction(feedbackFileRelativePath: string): string {
-  return `${feedbackFileRelativePath} を読んで、記載の指摘内容（ファイル・行）を確認し、対応を実施してください。`;
+  return `${feedbackFileRelativePath} を読んでフィードバック（ファイル・行）を確認し、指摘に対応してください。`;
 }
 
 export async function POST(request: Request) {
@@ -43,11 +39,11 @@ export async function POST(request: Request) {
   }
 
   const targetDir = getTargetDir(projectRoot, config, target);
-  const data = readFeedbackUnsent(targetDir);
+  const data = readFeedback(targetDir);
   if (!data.items.length) {
     return NextResponse.json(
       {
-        error: "送信する指摘がありません。",
+        error: "No feedback to send.",
       },
       { status: 400 }
     );
@@ -121,7 +117,11 @@ export async function POST(request: Request) {
     );
   }
 
-  writeFeedbackUnsent(targetDir, { items: [] });
+  const submittedAt = new Date().toISOString();
+  const itemsWithSubmittedAt = data.items.map((item) =>
+    item.submitted_at ? item : { ...item, submitted_at: submittedAt }
+  );
+  writeFeedback(targetDir, itemsWithSubmittedAt);
 
   return NextResponse.json({
     ok: true,

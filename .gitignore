@@ -39,7 +39,9 @@ yarn-error.log*
 # AgentScrutiny: 実際の設定は ignore（config.json.example をコピーして使用）
 config.json
 
-# AgentScrutiny: 未送信指摘と Submit 時に生成する YAML はローカルのみ
+# AgentScrutiny: 指摘・完了履歴・Submit 時に生成する YAML はローカルのみ
+**/.scrutiny/feedback.yaml
+**/.scrutiny/feedback-resolved.yaml
 **/.scrutiny/feedback-*.yaml
 
 # typescript

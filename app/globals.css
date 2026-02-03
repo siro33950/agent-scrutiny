@@ -82,14 +82,16 @@ body {
   }
 }
 
-/* Monaco: existing feedback line highlight */
-.scrutiny-feedback-line {
-  background: rgba(59, 130, 246, 0.08);
+/* Monaco: feedback line vertical indicator (expanded state) */
+.scrutiny-feedback-line-decoration {
+  background: rgb(59, 130, 246);
+  width: 3px;
+  margin-left: 3px;
 }
 
 @media (prefers-color-scheme: dark) {
-  .scrutiny-feedback-line {
-    background: rgba(96, 165, 250, 0.12);
+  .scrutiny-feedback-line-decoration {
+    background: rgb(96, 165, 250);
   }
 }
 

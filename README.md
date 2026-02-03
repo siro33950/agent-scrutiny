@@ -2,11 +2,11 @@
 
 CLI ベースの AI コーディングエージェント（Aider, Claude Code 等）と人間との共同作業を最適化する**ローカル専用レビューツール**です。AI が生成したコードの差分をブラウザ上で GitHub PR 風に確認し、行ごとのフィードバックを `.scrutiny/feedback.yaml` に保存し、Tmux 経由でターミナルの AI に修正指示を送る「密結合ループ」を実現します。
 
-## Tight-Coupling Workflow
+## 密結合ワークフロー
 
 1. **CLI:** 開発者がターミナルで AI に指示を出す。
 2. **Web UI:** AI が書き換えたコードの差分をブラウザで精査（Scrutiny）する。
-3. **Feedback:** 差分に対する指摘をブラウザ上で入力し、`.scrutiny/feedback.yaml` に保存する。
+3. **Feedback:** ブラウザで差分にフィードバックを入力し、`.scrutiny/feedback.yaml` に保存する。
 4. **Action:** ブラウザの「Submit to Agent」ボタンで、Tmux を介してターミナルの AI に修正命令を送信する。
 
 ## セットアップ
@@ -72,7 +72,7 @@ tmux attach-session -t scrutiny-agent # エージェントに指示を送る（S
 ## 注意事項
 
 - **ローカル専用:** 認証は想定していません。ネットワークに公開する場合は別途対策が必要です。
-- **.scrutiny の位置:** 差分は各 target（作業ディレクトリ）の Git リポジトリで取得し、`.scrutiny/feedback.yaml` および `feedback-unsent.yaml` は **各 target の作業ディレクトリ直下** に作成されます。target を切り替えると、その target 用の指摘だけが表示・編集されます。（従来の `.ai/` は廃止されています。）
+- **.scrutiny の位置:** 差分は各 target（作業ディレクトリ）の Git リポジトリで取得し、`.scrutiny/feedback.yaml`（有効な指摘）および `feedback-resolved.yaml`（完了済み履歴）は **各 target の作業ディレクトリ直下** に作成されます。target を切り替えると、その target 用の feedback だけが表示・編集されます。（`.ai/` は廃止されています。）
 
 ## 技術スタック
 
